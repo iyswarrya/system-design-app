@@ -52,3 +52,68 @@ class ValidateResponse(BaseModel):
     )
 
     model_config = {"populate_by_name": True}
+
+
+class ValidateApisRequest(BaseModel):
+    """Request body for POST /validate-apis."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    apis: list[str] = Field(
+        default_factory=list,
+        description="User-provided API descriptions (e.g. POST /shorten – create short URL)",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateApisResponse(BaseModel):
+    """Response body for POST /validate-apis. Top APIs + what user got right / missed."""
+
+    apis: list[str] = Field(..., description="Top 5 important APIs for the system")
+    matched: list[str] = Field(
+        default_factory=list,
+        description="From top 5 that the user's answers covered (by meaning)",
+    )
+    missed: list[str] = Field(
+        default_factory=list,
+        description="From top 5 that the user did not cover",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDiagramRequest(BaseModel):
+    """Request body for POST /validate-diagram."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    diagramXml: str = Field(
+        default="",
+        alias="diagramXml",
+        description="Draw.io diagram XML (to extract text labels for comparison)",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDiagramResponse(BaseModel):
+    """Response body for POST /validate-diagram. Expected elements + matched / missed + suggested diagram."""
+
+    elements: list[str] = Field(
+        ...,
+        description="Key components/elements that should appear in the high-level diagram",
+    )
+    matched: list[str] = Field(
+        default_factory=list,
+        description="Expected elements that the user's diagram covered (by meaning)",
+    )
+    missed: list[str] = Field(
+        default_factory=list,
+        description="Expected elements that the user did not include",
+    )
+    suggestedDiagram: str = Field(
+        default="",
+        alias="suggestedDiagram",
+        description="High-level diagram from LLM (Mermaid flowchart) for the user to add to summary",
+    )
+
+    model_config = {"populate_by_name": True}

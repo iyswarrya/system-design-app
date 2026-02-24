@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import RequirementsForm from "@/components/RequirementsForm";
 
@@ -17,7 +18,13 @@ export default function RequirementsPage() {
       <div className="absolute inset-0 bg-gradient-to-r from-blue-100/30 via-purple-100/30 to-pink-100/30 dark:from-blue-900/10 dark:via-purple-900/10 dark:to-pink-900/10"></div>
       <main className="relative z-10 mx-auto max-w-6xl px-4 py-12">
         <div className="mb-10">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
+          <Link
+            href="/"
+            className="text-sm font-medium text-purple-600 hover:underline dark:text-purple-400"
+          >
+            ← Back to home
+          </Link>
+          <h1 className="mt-2 text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
             {topicName}
           </h1>
           <p className="mt-3 text-lg text-gray-700 dark:text-gray-300">
@@ -25,7 +32,7 @@ export default function RequirementsPage() {
           </p>
         </div>
 
-        <RequirementsForm topic={topicName} />
+        <RequirementsForm topic={topicName} topicSlug={topic} />
       </main>
     </div>
   );

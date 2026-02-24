@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { useSummary } from "@/context/SummaryContext";
 import RequirementsSection from "./RequirementsSection";
 
 const API_BASE =
@@ -8,9 +10,11 @@ const API_BASE =
 
 interface RequirementsFormProps {
   topic: string;
+  topicSlug: string;
 }
 
-export default function RequirementsForm({ topic }: RequirementsFormProps) {
+export default function RequirementsForm({ topic, topicSlug }: RequirementsFormProps) {
+  const { setRequirements } = useSummary();
   const [functionalReqs, setFunctionalReqs] = useState<string[]>([""]);
   const [nonFunctionalReqs, setNonFunctionalReqs] = useState<string[]>([""]);
   const [isValidating, setIsValidating] = useState(false);
@@ -69,7 +73,7 @@ export default function RequirementsForm({ topic }: RequirementsFormProps) {
         placeholder="e.g., System should handle 1000 requests per second"
       />
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <button
           onClick={handleValidate}
           disabled={isValidating}
@@ -80,6 +84,25 @@ export default function RequirementsForm({ topic }: RequirementsFormProps) {
           </span>
           <div className="absolute inset-0 bg-gradient-to-r from-pink-600 via-purple-400 to-indigo-600 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></div>
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            const func = validationResults?.functional ?? functionalReqs.filter((r) => r.trim() !== "");
+            const nonFunc = validationResults?.nonFunctional ?? nonFunctionalReqs.filter((r) => r.trim() !== "");
+            if (func.length || nonFunc.length) {
+              setRequirements({ functional: func, nonFunctional: nonFunc });
+            }
+          }}
+          className="rounded-xl border-2 border-purple-400 bg-white px-6 py-3 text-base font-semibold text-purple-600 transition-colors hover:bg-purple-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
+        >
+          Save to summary
+        </button>
+        <Link
+          href={`/requirements/${topicSlug}/api-design`}
+          className="rounded-xl bg-gray-800 px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
+        >
+          Next: API design →
+        </Link>
       </div>
 
       {validationResults && (

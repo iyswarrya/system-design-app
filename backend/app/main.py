@@ -7,8 +7,24 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.llm import call_llm1, call_llm2, classify_requirements_coverage
-from app.schemas import ValidateRequest, ValidateResponse
+from app.diagram import extract_text_from_drawio_xml
+from app.llm import (
+    call_llm1,
+    call_llm2,
+    call_llm_apis_1,
+    call_llm_apis_2,
+    call_llm_diagram_1,
+    call_llm_diagram_2,
+    classify_requirements_coverage,
+)
+from app.schemas import (
+    ValidateApisRequest,
+    ValidateApisResponse,
+    ValidateDiagramRequest,
+    ValidateDiagramResponse,
+    ValidateRequest,
+    ValidateResponse,
+)
 from app.validation import combine_top_requirements, find_common_requirements
 
 load_dotenv()
@@ -86,6 +102,57 @@ async def validate(req: ValidateRequest) -> ValidateResponse:
         functionalMissed=coverage_func["missed"],
         nonFunctionalMatched=coverage_non_func["matched"],
         nonFunctionalMissed=coverage_non_func["missed"],
+    )
+
+
+@app.post("/validate-apis", response_model=ValidateApisResponse)
+async def validate_apis(req: ValidateApisRequest) -> ValidateApisResponse:
+    """
+    Call two LLMs for top 5 APIs for the topic, merge (common or combine top),
+    then compare user's APIs against the result by meaning; return matched and missed.
+    """
+    apis1, apis2 = await asyncio.gather(
+        call_llm_apis_1(req.topic),
+        call_llm_apis_2(req.topic),
+    )
+    common = find_common_requirements(apis1, apis2)
+    final_apis = (
+        common if common else combine_top_requirements(apis1, apis2)
+    )
+    coverage = await classify_requirements_coverage(final_apis, req.apis or [])
+    return ValidateApisResponse(
+        apis=final_apis,
+        matched=coverage["matched"],
+        missed=coverage["missed"],
+    )
+
+
+@app.post("/validate-diagram", response_model=ValidateDiagramResponse)
+async def validate_diagram(req: ValidateDiagramRequest) -> ValidateDiagramResponse:
+    """
+    Call two LLMs for key components that should appear in a high-level diagram,
+    merge lists, extract text from the user's draw.io XML, then compare by meaning.
+    """
+    result1, elem2 = await asyncio.gather(
+        call_llm_diagram_1(req.topic),
+        call_llm_diagram_2(req.topic),
+    )
+    elem1 = result1["elements"]
+    suggested_diagram = result1.get("suggested_diagram") or ""
+    common = find_common_requirements(elem1, elem2)
+    final_elements = (
+        common if common else combine_top_requirements(elem1, elem2)
+    )
+    user_labels = extract_text_from_drawio_xml(req.diagramXml or "")
+    print("[diagram] User labels:", user_labels)
+    coverage = await classify_requirements_coverage(
+        final_elements, user_labels, for_diagram=True
+    )
+    return ValidateDiagramResponse(
+        elements=final_elements,
+        matched=coverage["matched"],
+        missed=coverage["missed"],
+        suggestedDiagram=suggested_diagram,
     )
 
 
