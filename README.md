@@ -1,5 +1,12 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment variables (API keys)
+
+**Do not commit API keys.** The repo ignores `.env` and `backend/.env`.
+
+- **Backend:** Copy `backend/.env.example` to `backend/.env` and set `OPENAI_API_KEY` (and any other keys) there. Never put real keys in `.env.example`.
+- **Frontend:** To point at a different API URL, set `NEXT_PUBLIC_API_URL` in a `.env.local` at the project root (e.g. `NEXT_PUBLIC_API_URL=http://localhost:8000`).
+
 ## Getting Started
 
 First, run the development server:
