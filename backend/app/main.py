@@ -21,6 +21,7 @@ from app.llm import (
     call_llm_data_model_1,
     call_llm_data_model_2,
     call_llm_data_model_feedback,
+    call_llm_validate_flow,
     classify_requirements_coverage,
 )
 from app.schemas import (
@@ -34,6 +35,8 @@ from app.schemas import (
     ValidateDiagramResponse,
     ValidateEstimationRequest,
     ValidateEstimationResponse,
+    ValidateFlowRequest,
+    ValidateFlowResponse,
     ValidateRequest,
     ValidateResponse,
 )
@@ -103,8 +106,8 @@ async def validate(req: ValidateRequest) -> ValidateResponse:
     user_func = req.functionalReqs or []
     user_non_func = req.nonFunctionalReqs or []
     coverage_func, coverage_non_func = await asyncio.gather(
-        classify_requirements_coverage(final_func, user_func),
-        classify_requirements_coverage(final_non_func, user_non_func),
+        classify_requirements_coverage(final_func, user_func, for_requirements=True),
+        classify_requirements_coverage(final_non_func, user_non_func, for_requirements=True),
     )
 
     return ValidateResponse(
@@ -131,7 +134,9 @@ async def validate_apis(req: ValidateApisRequest) -> ValidateApisResponse:
     final_apis = (
         common if common else combine_top_requirements(apis1, apis2)
     )
-    coverage = await classify_requirements_coverage(final_apis, req.apis or [])
+    coverage = await classify_requirements_coverage(
+        final_apis, req.apis or [], for_apis=True
+    )
     return ValidateApisResponse(
         apis=final_apis,
         matched=coverage["matched"],
@@ -165,6 +170,27 @@ async def validate_diagram(req: ValidateDiagramRequest) -> ValidateDiagramRespon
         matched=coverage["matched"],
         missed=coverage["missed"],
         suggestedDiagram=suggested_diagram,
+    )
+
+
+@app.post("/validate-flow", response_model=ValidateFlowResponse)
+async def validate_flow(req: ValidateFlowRequest) -> ValidateFlowResponse:
+    """
+    Validate the user's end-to-end flow summary against the system design.
+    Optionally uses diagram XML to extract component labels for context.
+    """
+    diagram_labels = (
+        extract_text_from_drawio_xml(req.diagramXml) if (req.diagramXml or "").strip() else []
+    )
+    result = await call_llm_validate_flow(
+        topic=req.topic,
+        flow_summary=req.flowSummary or "",
+        diagram_labels=diagram_labels or None,
+    )
+    return ValidateFlowResponse(
+        correct=result["correct"],
+        feedback=result["feedback"],
+        improvements=result.get("improvements", ""),
     )
 
 

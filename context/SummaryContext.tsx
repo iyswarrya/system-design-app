@@ -19,11 +19,18 @@ export interface SchemaFeedbackItem {
   comment: string;
 }
 
+export interface ApiDesignRow {
+  api: string;
+  request: string;
+  response: string;
+}
+
 export interface SummaryState {
   requirements: RequirementsSummary | null;
-  apiDesign: string[];
+  apiDesign: ApiDesignRow[];
   diagramXml: string | null;
   suggestedDiagramMermaid: string | null;
+  endToEndFlow: string | null;
   estimation: string[];
   dataModel: string[];
   schemaFeedback: SchemaFeedbackItem[] | null;
@@ -33,25 +40,42 @@ const STORAGE_PREFIX = "system-design-summary-";
 
 function loadSummary(topic: string): SummaryState {
   if (typeof window === "undefined") {
-    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
+    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, endToEndFlow: null, estimation: [], dataModel: [], schemaFeedback: null };
   }
   try {
     const raw = sessionStorage.getItem(STORAGE_PREFIX + topic);
-    if (!raw) return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
-    const parsed = JSON.parse(raw) as SummaryState;
+    if (!raw) return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, endToEndFlow: null, estimation: [], dataModel: [], schemaFeedback: null };
+    const parsed = JSON.parse(raw) as { apiDesign?: unknown; [k: string]: unknown };
+    const rawApi = parsed.apiDesign;
+    let apiDesign: ApiDesignRow[] = [];
+    if (Array.isArray(rawApi)) {
+      const first = rawApi[0];
+      if (typeof first === "string") {
+        apiDesign = rawApi.map((s) => ({ api: String(s), request: "", response: "" }));
+      } else if (first && typeof first === "object" && "api" in first) {
+        apiDesign = rawApi
+          .filter((r) => r && typeof r === "object" && "api" in r)
+          .map((r) => ({
+            api: String((r as ApiDesignRow).api),
+            request: String((r as ApiDesignRow).request ?? ""),
+            response: String((r as ApiDesignRow).response ?? ""),
+          }));
+      }
+    }
     const fb = parsed.schemaFeedback;
-    const schemaFeedback = Array.isArray(fb) ? fb.filter((x) => x && typeof x.userLine === "string" && typeof x.reasonable === "boolean" && typeof x.comment === "string") : null;
+    const schemaFeedback = Array.isArray(fb) ? (fb as SchemaFeedbackItem[]).filter((x) => x && typeof x.userLine === "string" && typeof x.reasonable === "boolean" && typeof x.comment === "string") : null;
     return {
-      requirements: parsed.requirements ?? null,
-      apiDesign: Array.isArray(parsed.apiDesign) ? parsed.apiDesign : [],
+      requirements: (parsed.requirements as SummaryState["requirements"]) ?? null,
+      apiDesign,
       diagramXml: typeof parsed.diagramXml === "string" ? parsed.diagramXml : null,
       suggestedDiagramMermaid: typeof parsed.suggestedDiagramMermaid === "string" ? parsed.suggestedDiagramMermaid : null,
-      estimation: Array.isArray(parsed.estimation) ? parsed.estimation : [],
-      dataModel: Array.isArray(parsed.dataModel) ? parsed.dataModel : [],
+      endToEndFlow: typeof parsed.endToEndFlow === "string" ? parsed.endToEndFlow : null,
+      estimation: Array.isArray(parsed.estimation) ? (parsed.estimation as string[]) : [],
+      dataModel: Array.isArray(parsed.dataModel) ? (parsed.dataModel as string[]) : [],
       schemaFeedback: schemaFeedback?.length ? schemaFeedback : null,
     };
   } catch {
-    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
+    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, endToEndFlow: null, estimation: [], dataModel: [], schemaFeedback: null };
   }
 }
 
@@ -67,9 +91,10 @@ function saveSummary(topic: string, state: SummaryState) {
 interface SummaryContextValue extends SummaryState {
   topic: string;
   setRequirements: (req: RequirementsSummary) => void;
-  setApiDesign: (apis: string[]) => void;
+  setApiDesign: (rows: ApiDesignRow[]) => void;
   setDiagramXml: (xml: string | null) => void;
   setSuggestedDiagramMermaid: (mermaid: string | null) => void;
+  setEndToEndFlow: (flow: string | null) => void;
   setEstimation: (items: string[]) => void;
   setDataModel: (items: string[]) => void;
   setSchemaFeedback: (feedback: SchemaFeedbackItem[] | null) => void;
@@ -98,7 +123,7 @@ export function SummaryProvider({
     setState((prev) => ({ ...prev, requirements }));
   }, []);
 
-  const setApiDesign = useCallback((apiDesign: string[]) => {
+  const setApiDesign = useCallback((apiDesign: ApiDesignRow[]) => {
     setState((prev) => ({ ...prev, apiDesign }));
   }, []);
 
@@ -108,6 +133,10 @@ export function SummaryProvider({
 
   const setSuggestedDiagramMermaid = useCallback((suggestedDiagramMermaid: string | null) => {
     setState((prev) => ({ ...prev, suggestedDiagramMermaid }));
+  }, []);
+
+  const setEndToEndFlow = useCallback((endToEndFlow: string | null) => {
+    setState((prev) => ({ ...prev, endToEndFlow }));
   }, []);
 
   const setEstimation = useCallback((estimation: string[]) => {
@@ -129,6 +158,7 @@ export function SummaryProvider({
     setApiDesign,
     setDiagramXml,
     setSuggestedDiagramMermaid,
+    setEndToEndFlow,
     setEstimation,
     setDataModel,
     setSchemaFeedback,

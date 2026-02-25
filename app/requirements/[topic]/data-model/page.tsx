@@ -64,7 +64,7 @@ export default function DatabaseSchemaPage() {
         body: JSON.stringify({
           topic: topicName,
           dataModel: userSchemaLines,
-          apiDesign: apiDesign ?? [],
+          apiDesign: (apiDesign ?? []).map((r) => r.api).filter(Boolean),
         }),
       });
       if (!res.ok) throw new Error("Validation failed");
@@ -147,6 +147,12 @@ export default function DatabaseSchemaPage() {
                 Database schema saved to interview summary
               </span>
             )}
+            <Link
+              href={`/requirements/${topic}/end-to-end-flow`}
+              className="rounded-xl bg-gray-800 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
+            >
+              Next: End-to-end flow →
+            </Link>
           </div>
         </div>
 

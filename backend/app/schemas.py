@@ -119,6 +119,43 @@ class ValidateDiagramResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ValidateFlowRequest(BaseModel):
+    """Request body for POST /validate-flow. End-to-end flow validation based on high-level diagram."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    flowSummary: str = Field(
+        default="",
+        alias="flowSummary",
+        description="User's end-to-end flow description (e.g. request path, data flow)",
+    )
+    diagramXml: str = Field(
+        default="",
+        alias="diagramXml",
+        description="Optional draw.io diagram XML to extract component labels for context",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateFlowResponse(BaseModel):
+    """Response body for POST /validate-flow. LLM feedback on the flow summary."""
+
+    correct: bool = Field(
+        ...,
+        description="True if the flow is largely correct and aligns with the expected system design",
+    )
+    feedback: str = Field(
+        default="",
+        description="Overall feedback on whether the flow is correct and what was done well",
+    )
+    improvements: str = Field(
+        default="",
+        description="Suggested improvements, missing steps, or corrections",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class ValidateEstimationRequest(BaseModel):
     """Request body for POST /validate-estimation."""
 

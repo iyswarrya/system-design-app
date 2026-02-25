@@ -7,12 +7,13 @@ import { useSummary } from "@/context/SummaryContext";
 export default function SummaryPane() {
   const params = useParams();
   const topic = params.topic as string;
-  const { requirements, apiDesign, diagramXml, suggestedDiagramMermaid, estimation, dataModel, schemaFeedback } = useSummary();
+  const { requirements, apiDesign, diagramXml, suggestedDiagramMermaid, endToEndFlow, estimation, dataModel, schemaFeedback } = useSummary();
   const hasAny =
     requirements ||
     (apiDesign && apiDesign.length > 0) ||
     (diagramXml && diagramXml.length > 0) ||
     (suggestedDiagramMermaid && suggestedDiagramMermaid.length > 0) ||
+    (endToEndFlow && endToEndFlow.trim().length > 0) ||
     (estimation && estimation.length > 0) ||
     (dataModel && dataModel.length > 0);
 
@@ -74,10 +75,17 @@ export default function SummaryPane() {
           <h3 className="text-xs font-semibold uppercase tracking-wide text-pink-600 dark:text-pink-400">
             API design
           </h3>
-          <ul className="mt-1.5 space-y-0.5 pl-3 text-xs text-gray-700 dark:text-gray-300">
-            {apiDesign.map((api, i) => (
+          <ul className="mt-1.5 space-y-1 pl-3 text-xs text-gray-700 dark:text-gray-300">
+            {apiDesign.map((row, i) => (
               <li key={i} className="list-disc">
-                {api}
+                <span className="font-medium">{row.api}</span>
+                {(row.request || row.response) && (
+                  <span className="block mt-0.5 pl-2 text-gray-600 dark:text-gray-400">
+                    {row.request && <>Request: {row.request}</>}
+                    {row.request && row.response && " · "}
+                    {row.response && <>Response: {row.response}</>}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -109,6 +117,23 @@ export default function SummaryPane() {
           <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
             Mermaid reference saved.
           </p>
+        </section>
+      )}
+
+      {endToEndFlow && endToEndFlow.trim().length > 0 && (
+        <section className="mt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
+            End-to-end flow
+          </h3>
+          <p className="mt-1 line-clamp-3 text-xs text-gray-600 dark:text-gray-400">
+            {endToEndFlow.trim()}
+          </p>
+          <Link
+            href={`/requirements/${topic}/end-to-end-flow`}
+            className="mt-0.5 inline-block text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400"
+          >
+            Open
+          </Link>
         </section>
       )}
 
@@ -197,6 +222,12 @@ export default function SummaryPane() {
           className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
         >
           Database schema →
+        </Link>
+        <Link
+          href={`/requirements/${topic}/end-to-end-flow`}
+          className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
+        >
+          End-to-end flow →
         </Link>
       </div>
     </aside>

@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSummary } from "@/context/SummaryContext";
-import { useState } from "react";
-import RequirementsSection from "@/components/RequirementsSection";
+import { useState, useEffect } from "react";
+import type { ApiDesignRow } from "@/context/SummaryContext";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+const emptyRow = (): ApiDesignRow => ({ api: "", request: "", response: "" });
+
 export default function ApiDesignPage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { setApiDesign } = useSummary();
-  const [apiItems, setApiItems] = useState<string[]>([""]);
+  const { apiDesign: savedApiDesign, setApiDesign } = useSummary();
+  const [apiRows, setApiRows] = useState<ApiDesignRow[]>(() => [emptyRow()]);
   const [saved, setSaved] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<{
@@ -22,23 +24,46 @@ export default function ApiDesignPage() {
     missed: string[];
   } | null>(null);
 
+  useEffect(() => {
+    if (savedApiDesign && savedApiDesign.length > 0) {
+      setApiRows(savedApiDesign);
+    }
+  }, [topic]);
+
   const topicName = topic
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
-  const userApis = apiItems.map((s) => s.trim()).filter(Boolean);
+  const userApis = apiRows.map((r) => r.api.trim()).filter(Boolean);
 
-  const setApiItemsAndClearSaved = (newItems: string[]) => {
-    setApiItems(newItems);
+  const setRow = (index: number, field: keyof ApiDesignRow, value: string) => {
+    setApiRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+    setSaved(false);
+  };
+
+  const addRow = () => {
+    setApiRows((prev) => [...prev, emptyRow()]);
+    setSaved(false);
+  };
+
+  const removeRow = (index: number) => {
+    if (apiRows.length <= 1) return;
+    setApiRows((prev) => prev.filter((_, i) => i !== index));
     setSaved(false);
   };
 
   const handleSave = () => {
     const correctApis = validationResults?.apis;
-    const toSave =
-      correctApis && correctApis.length > 0 ? correctApis : userApis;
-    setApiDesign(toSave);
+    if (correctApis && correctApis.length > 0) {
+      setApiDesign(correctApis.map((api) => ({ api, request: "", response: "" })));
+    } else {
+      setApiDesign(apiRows);
+    }
     setSaved(true);
   };
 
@@ -88,13 +113,54 @@ export default function ApiDesignPage() {
         </div>
 
         <div className="space-y-6">
-          <RequirementsSection
-            title="API design"
-            requirements={apiItems}
-            setRequirements={setApiItemsAndClearSaved}
-            placeholder="e.g. POST /shorten – create short URL, GET /:id – resolve and redirect"
-            addButtonLabel="+ Add API"
-          />
+          <div className="rounded-2xl border-2 border-purple-200 bg-gradient-to-br from-white via-purple-50/20 to-indigo-50/20 p-8 shadow-xl backdrop-blur-sm transition-all duration-300 hover:shadow-2xl dark:border-purple-800 dark:from-gray-800 dark:via-purple-900/15 dark:to-indigo-900/15">
+            <h2 className="mb-6 text-2xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
+              API design
+            </h2>
+            <div className="space-y-4">
+              {apiRows.map((row, index) => (
+                <div key={index} className="flex flex-wrap items-stretch gap-3">
+                  <input
+                    type="text"
+                    value={row.api}
+                    onChange={(e) => setRow(index, "api", e.target.value)}
+                    placeholder="e.g. POST /shorten – create short URL"
+                    className="min-w-[200px] flex-1 rounded-xl border-2 border-gray-200 bg-white/90 px-4 py-3 text-base text-gray-900 placeholder-gray-400 shadow-md transition-all focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-400/20 dark:border-gray-700 dark:bg-gray-800/90 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-purple-300"
+                  />
+                  <input
+                    type="text"
+                    value={row.request}
+                    onChange={(e) => setRow(index, "request", e.target.value)}
+                    placeholder="Input / request"
+                    className="min-w-[120px] flex-1 rounded-xl border-2 border-gray-200 bg-white/90 px-4 py-3 text-base text-gray-900 placeholder-gray-400 shadow-md transition-all focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-400/20 dark:border-gray-700 dark:bg-gray-800/90 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-purple-300"
+                  />
+                  <input
+                    type="text"
+                    value={row.response}
+                    onChange={(e) => setRow(index, "response", e.target.value)}
+                    placeholder="Output / response"
+                    className="min-w-[120px] flex-1 rounded-xl border-2 border-gray-200 bg-white/90 px-4 py-3 text-base text-gray-900 placeholder-gray-400 shadow-md transition-all focus:border-purple-400 focus:outline-none focus:ring-4 focus:ring-purple-400/20 dark:border-gray-700 dark:bg-gray-800/90 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-purple-300"
+                  />
+                  {apiRows.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(index)}
+                      className="rounded-xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-pink-50 px-4 py-3 font-medium text-red-700 shadow-md transition-all hover:scale-105 dark:border-red-800 dark:from-red-900/20 dark:to-pink-900/20 dark:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addRow}
+              className="mt-6 rounded-xl border-2 border-purple-300 bg-gradient-to-r from-indigo-50 via-purple-50 to-purple-50 px-6 py-3 font-semibold text-purple-700 shadow-md transition-all hover:scale-105 dark:border-purple-700 dark:from-indigo-900/20 dark:via-purple-900/20 dark:to-purple-900/20 dark:text-purple-300"
+            >
+              + Add API
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"

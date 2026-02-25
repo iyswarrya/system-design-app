@@ -231,6 +231,65 @@ async def call_llm_diagram_2(topic: str) -> list[str]:
     return _stub_diagram_2(topic)
 
 
+# --- End-to-end flow validation ---
+
+FLOW_VALIDATION_PROMPT = """You are a system design expert. You are given:
+1) A system design topic.
+2) Optional: a list of component labels from the user's high-level diagram (if provided).
+3) The user's end-to-end flow summary (how a request or data flows through the system).
+
+Your task: Validate whether the user's flow summary is correct and consistent with the system design and (if provided) the diagram components. Consider:
+- Does the flow align with typical architecture for this kind of system?
+- If diagram labels were given, does the flow mention or imply the right components and their order?
+- Are critical steps (e.g. load balancing, caching, persistence, external calls) present where expected?
+- Is the sequence logical (e.g. client -> LB -> app -> DB, not client -> DB directly)?
+
+Respond with valid JSON only, in this exact shape (no other text):
+{"correct": true or false, "feedback": "1-3 sentences on what is correct or wrong about the flow", "improvements": "Concrete suggestions: missing steps, wrong order, components to add, or clarifications. Empty string if no improvements needed."}
+- "correct": true if the flow is largely correct and aligns with the expected design; false if it has significant gaps or errors.
+- "feedback": Brief overall assessment (what they got right or wrong).
+- "improvements": Specific, actionable suggestions. Leave empty if the flow is good."""
+
+
+async def call_llm_validate_flow(
+    topic: str, flow_summary: str, diagram_labels: list[str] | None = None
+) -> dict:
+    """Validate user's end-to-end flow summary against the system design and optional diagram. Returns {correct, feedback, improvements}."""
+    stub_result = {
+        "correct": True,
+        "feedback": "Flow summary was not validated (no API key or empty input).",
+        "improvements": "",
+    }
+    if not (flow_summary or "").strip():
+        return {**stub_result, "feedback": "No flow summary provided.", "correct": False}
+    if not OPENAI_API_KEY:
+        return stub_result
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    user_content = f"System design topic: {topic}\n\nUser's end-to-end flow summary:\n{flow_summary.strip()}"
+    if diagram_labels:
+        user_content += f"\n\nComponent labels from the user's high-level diagram (for reference):\n" + ", ".join(diagram_labels)
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": FLOW_VALIDATION_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return stub_result
+        data = json.loads(content)
+        return {
+            "correct": bool(data.get("correct", False)),
+            "feedback": str(data.get("feedback") or "").strip() or "No feedback.",
+            "improvements": str(data.get("improvements") or "").strip(),
+        }
+    except Exception:
+        return stub_result
+
+
 # --- Back-of-the-envelope estimation: key estimation items from two LLMs ---
 
 ESTIMATION_LLM_SYSTEM_PROMPT = """You are a system design expert. For a given system design topic, list 5-7 key back-of-the-envelope estimation items that should be considered (e.g. DAU/MAU or user scale, Queries per second (QPS), Storage size, Bandwidth, Read/write ratio, Cache hit rate, Data retention). Each item should be a short label describing what to estimate. Respond only with valid JSON in this exact shape, no other text:
@@ -538,6 +597,42 @@ COVERAGE_SYSTEM_PROMPT = """You are comparing a user's answers to a reference li
 - "missed": list of items from the reference list that the user did NOT cover (use the EXACT reference text).
 Every reference item must appear in either "matched" or "missed", and only those exact strings. No other text."""
 
+COVERAGE_REQUIREMENTS_PROMPT = """You are comparing the user's functional or non-functional requirements to a reference list. Use SEMANTIC MATCHING: two requirements match if they express the same idea, even with different words.
+
+Examples of MATCHED (same meaning):
+- Reference "User authentication and authorization" ↔ User wrote "Login and access control" or "Users can sign in and have roles"
+- Reference "Scalability to handle 1M+ users" ↔ User wrote "Scale to millions of users" or "System should scale horizontally"
+- Reference "Response time < 200ms" ↔ User wrote "Low latency" or "API response under 200ms"
+- Reference "Data storage and retrieval" ↔ User wrote "Persist and fetch data" or "Database for storing data"
+- Reference "RESTful API" ↔ User wrote "REST API" or "HTTP API endpoints"
+
+Put a reference item in "matched" if ANY user requirement semantically covers it (same intent, capability, or constraint). Put in "missed" only if no user requirement addresses that idea. Use the EXACT reference text in your output.
+
+Return valid JSON only:
+{"matched": ["exact reference 1", ...], "missed": ["exact reference 2", ...]}
+Every reference item must appear in either "matched" or "missed". No other text."""
+
+COVERAGE_APIS_PROMPT = """You are comparing the user's API design list to a reference list of expected APIs. Use SEMANTIC MATCHING: two APIs match if they represent the same operation and intent, even if paths or wording differ.
+
+Match by:
+- Same HTTP method + same intent (e.g. create resource, get list, get by id, update, delete, like, comment).
+- Path differences do NOT prevent a match: /v1/posts vs /posts, /api/shorten vs /shorten, /feed vs /posts for "list posts" are the same.
+- Query params or path params (cursor, limit, :id, {postId}) are implementation details; focus on what the API does (e.g. "get paginated list of posts" = "get feed" = "list posts for user").
+- Different labels for the same action count as matched: "Create Post: POST /v1/posts" matches "POST /posts – create a new post in the user's feed"; "Get Home Feed: GET /v1/feed?cursor=...&limit=20" matches "GET /posts – retrieve the list of posts for the current user".
+
+Examples of MATCHED (same meaning):
+- Reference "POST /posts – create a new post" ↔ User "Create Post: POST /v1/posts" or "POST /posts"
+- Reference "GET /posts – retrieve the list of posts for the current user" ↔ User "Get Home Feed: GET /v1/feed?cursor=...&limit=20" or "GET /feed" or "GET /posts"
+- Reference "GET /posts/{postId} – retrieve details for a specific post" ↔ User "GET /v1/posts/:id" or "Get post by ID: GET /posts/123"
+- Reference "POST /posts/{postId}/like – like a specific post" ↔ User "POST /likes" or "Like post: POST /v1/posts/123/like"
+- Reference "POST /posts/{postId}/comment – add a comment" ↔ User "POST /comments" or "Add comment: POST /v1/posts/123/comments"
+
+Put a reference API in "matched" if ANY user API describes the same operation and intent. Put in "missed" only if no user API addresses that operation. Use the EXACT reference text in your output.
+
+Return valid JSON only:
+{"matched": ["exact reference 1", ...], "missed": ["exact reference 2", ...]}
+Every reference item must appear in either "matched" or "missed". No other text."""
+
 COVERAGE_DIAGRAM_PROMPT = """You are comparing diagram labels to a reference list of expected components. The reference list is the expected diagram components. The user's list is the text labels from the user's diagram. For each item in the REFERENCE list, decide if any of the user's labels semantically cover it (same meaning: e.g. "L4 LB" or "Load Balancer" covers "Load Balancer", "Database (Dynamo DB)" covers "Database"). Your response must contain ONLY exact strings from the Reference list—copy them character-for-character. Do NOT put the user's labels in your response. Return valid JSON only:
 {"matched": ["Reference item 1", "Reference item 2"], "missed": ["Reference item 3", ...]}
 - "matched": reference items that the user's diagram labels cover (by meaning). Use EXACT reference strings only.
@@ -566,6 +661,8 @@ async def classify_requirements_coverage(
     *,
     for_diagram: bool = False,
     for_schema: bool = False,
+    for_requirements: bool = False,
+    for_apis: bool = False,
     api_design: list[str] | None = None,
 ) -> CoverageResult:
     """
@@ -592,6 +689,12 @@ async def classify_requirements_coverage(
         user_content = (
             f"Reference list (copy these exact strings into your matched/missed lists):\n{ref_str}\n\nUser's list:\n{user_str}"
         )
+    elif for_requirements:
+        system_prompt = COVERAGE_REQUIREMENTS_PROMPT
+        user_content = f"Reference list (use these EXACT strings in matched/missed):\n{ref_str}\n\nUser's requirements:\n{user_str}"
+    elif for_apis:
+        system_prompt = COVERAGE_APIS_PROMPT
+        user_content = f"Reference list (expected APIs — use these EXACT strings in matched/missed):\n{ref_str}\n\nUser's APIs:\n{user_str}"
     else:
         system_prompt = COVERAGE_SYSTEM_PROMPT
         user_content = f"Reference requirements (use these exact strings in your answer):\n{ref_str}\n\nUser's answers:\n{user_str}"
@@ -618,6 +721,10 @@ async def classify_requirements_coverage(
             print("[diagram] LLM raw matched:", matched, "| LLM raw missed:", missed)
         if for_schema:
             print("[schema] LLM raw matched:", matched, "| LLM raw missed:", missed)
+        if for_requirements:
+            print("[requirements] LLM raw matched:", matched, "| LLM raw missed:", missed)
+        if for_apis:
+            print("[apis] LLM raw matched:", matched, "| LLM raw missed:", missed)
         matched = [str(x).strip() for x in matched if str(x).strip() in reference]
         missed = [str(x).strip() for x in missed if str(x).strip() in reference]
         matched_set = set(matched)

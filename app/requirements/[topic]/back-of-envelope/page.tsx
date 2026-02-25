@@ -139,70 +139,30 @@ export default function BackOfEnvelopePage() {
             <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
               Estimation validation results
             </h2>
-            <div className="rounded-xl bg-gradient-to-r from-indigo-500/10 via-purple-300/10 to-purple-500/10 p-6 dark:from-indigo-500/20 dark:via-purple-300/20 dark:to-purple-500/20">
-              <h3 className="mb-4 text-xl font-semibold text-indigo-700 dark:text-indigo-300">
-                Key estimation items
-              </h3>
-              <ul className="mb-4 space-y-3 pl-6 text-gray-700 dark:text-gray-300">
-                {validationResults.elements.map((item, idx) => (
-                  <li
-                    key={idx}
-                    className="relative before:absolute before:-left-4 before:top-2 before:h-2 before:w-2 before:rounded-full before:bg-gradient-to-r before:from-indigo-400 before:via-purple-300 before:to-purple-400"
-                  >
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <div className="space-y-2 border-t border-indigo-200/60 pt-4 dark:border-indigo-700/60">
-                <p className="text-sm font-semibold text-green-700 dark:text-green-400">
-                  You got these right ({validationResults.matched.length}):
-                </p>
-                {validationResults.matched.length > 0 ? (
-                  <ul className="space-y-1 pl-6 text-gray-700 dark:text-gray-300">
-                    {validationResults.matched.map((item, idx) => (
-                      <li
-                        key={idx}
-                        className="relative before:absolute before:-left-4 before:top-1.5 before:h-1.5 before:w-1.5 before:rounded-full before:bg-green-500"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="pl-2 text-sm text-gray-500 dark:text-gray-400">
-                    None of your answers matched these.
-                  </p>
-                )}
-                <p className="mt-3 text-sm font-semibold text-amber-700 dark:text-amber-400">
-                  You missed ({validationResults.missed.length}):
-                </p>
-                {validationResults.missed.length > 0 ? (
-                  <ul className="space-y-1 pl-6 text-gray-700 dark:text-gray-300">
-                    {validationResults.missed.map((item, idx) => (
-                      <li
-                        key={idx}
-                        className="relative before:absolute before:-left-4 before:top-1.5 before:h-1.5 before:w-1.5 before:rounded-full before:bg-amber-500"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="pl-2 text-sm text-gray-500 dark:text-gray-400">
-                    You covered all of these.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {validationResults.calculationFeedback.length > 0 && (
+            {(validationResults.calculationFeedback.length > 0 || validationResults.missed.length > 0) && (
               <div className="rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-300/10 to-cyan-500/10 p-6 dark:from-emerald-500/20 dark:via-teal-300/20 dark:to-cyan-500/20">
                 <h3 className="mb-4 text-xl font-semibold text-emerald-800 dark:text-emerald-300">
                   Calculation feedback
                 </h3>
                 <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
                   Review of your numbers and derivations (per line).
+                  {validationResults.missed.length > 0 && " Items you didn’t cover are listed below so you can add estimates for them."}
                 </p>
+                {validationResults.missed.length > 0 && (
+                  <div className="mb-6 rounded-lg border-2 border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                      Items you didn’t cover ({validationResults.missed.length})
+                    </p>
+                    <ul className="mt-2 space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                      {validationResults.missed.map((item, idx) => (
+                        <li key={idx} className="list-disc">
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {validationResults.calculationFeedback.length > 0 && (
                 <ul className="space-y-4">
                   {validationResults.calculationFeedback.map((fb, idx) => (
                     <li
@@ -233,6 +193,7 @@ export default function BackOfEnvelopePage() {
                     </li>
                   ))}
                 </ul>
+                )}
               </div>
             )}
           </div>
