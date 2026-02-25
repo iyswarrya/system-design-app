@@ -13,31 +13,45 @@ export interface RequirementsSummary {
   nonFunctional: string[];
 }
 
+export interface SchemaFeedbackItem {
+  userLine: string;
+  reasonable: boolean;
+  comment: string;
+}
+
 export interface SummaryState {
   requirements: RequirementsSummary | null;
   apiDesign: string[];
   diagramXml: string | null;
   suggestedDiagramMermaid: string | null;
+  estimation: string[];
+  dataModel: string[];
+  schemaFeedback: SchemaFeedbackItem[] | null;
 }
 
 const STORAGE_PREFIX = "system-design-summary-";
 
 function loadSummary(topic: string): SummaryState {
   if (typeof window === "undefined") {
-    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null };
+    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
   }
   try {
     const raw = sessionStorage.getItem(STORAGE_PREFIX + topic);
-    if (!raw) return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null };
+    if (!raw) return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
     const parsed = JSON.parse(raw) as SummaryState;
+    const fb = parsed.schemaFeedback;
+    const schemaFeedback = Array.isArray(fb) ? fb.filter((x) => x && typeof x.userLine === "string" && typeof x.reasonable === "boolean" && typeof x.comment === "string") : null;
     return {
       requirements: parsed.requirements ?? null,
       apiDesign: Array.isArray(parsed.apiDesign) ? parsed.apiDesign : [],
       diagramXml: typeof parsed.diagramXml === "string" ? parsed.diagramXml : null,
       suggestedDiagramMermaid: typeof parsed.suggestedDiagramMermaid === "string" ? parsed.suggestedDiagramMermaid : null,
+      estimation: Array.isArray(parsed.estimation) ? parsed.estimation : [],
+      dataModel: Array.isArray(parsed.dataModel) ? parsed.dataModel : [],
+      schemaFeedback: schemaFeedback?.length ? schemaFeedback : null,
     };
   } catch {
-    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null };
+    return { requirements: null, apiDesign: [], diagramXml: null, suggestedDiagramMermaid: null, estimation: [], dataModel: [], schemaFeedback: null };
   }
 }
 
@@ -56,6 +70,9 @@ interface SummaryContextValue extends SummaryState {
   setApiDesign: (apis: string[]) => void;
   setDiagramXml: (xml: string | null) => void;
   setSuggestedDiagramMermaid: (mermaid: string | null) => void;
+  setEstimation: (items: string[]) => void;
+  setDataModel: (items: string[]) => void;
+  setSchemaFeedback: (feedback: SchemaFeedbackItem[] | null) => void;
 }
 
 const SummaryContext = createContext<SummaryContextValue | null>(null);
@@ -93,6 +110,18 @@ export function SummaryProvider({
     setState((prev) => ({ ...prev, suggestedDiagramMermaid }));
   }, []);
 
+  const setEstimation = useCallback((estimation: string[]) => {
+    setState((prev) => ({ ...prev, estimation }));
+  }, []);
+
+  const setDataModel = useCallback((dataModel: string[]) => {
+    setState((prev) => ({ ...prev, dataModel }));
+  }, []);
+
+  const setSchemaFeedback = useCallback((schemaFeedback: SchemaFeedbackItem[] | null) => {
+    setState((prev) => ({ ...prev, schemaFeedback }));
+  }, []);
+
   const value: SummaryContextValue = {
     ...state,
     topic,
@@ -100,6 +129,9 @@ export function SummaryProvider({
     setApiDesign,
     setDiagramXml,
     setSuggestedDiagramMermaid,
+    setEstimation,
+    setDataModel,
+    setSchemaFeedback,
   };
 
   return (

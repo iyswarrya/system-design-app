@@ -209,6 +209,12 @@ export default function HighLevelDiagramPage() {
                 Saved
               </span>
             )}
+            <Link
+              href={`/requirements/${topic}/back-of-envelope`}
+              className="rounded-xl bg-gray-800 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
+            >
+              Next: Back of envelope →
+            </Link>
           </div>
         </div>
 

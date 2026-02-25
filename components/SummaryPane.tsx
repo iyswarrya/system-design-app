@@ -7,12 +7,14 @@ import { useSummary } from "@/context/SummaryContext";
 export default function SummaryPane() {
   const params = useParams();
   const topic = params.topic as string;
-  const { requirements, apiDesign, diagramXml, suggestedDiagramMermaid } = useSummary();
+  const { requirements, apiDesign, diagramXml, suggestedDiagramMermaid, estimation, dataModel, schemaFeedback } = useSummary();
   const hasAny =
     requirements ||
     (apiDesign && apiDesign.length > 0) ||
     (diagramXml && diagramXml.length > 0) ||
-    (suggestedDiagramMermaid && suggestedDiagramMermaid.length > 0);
+    (suggestedDiagramMermaid && suggestedDiagramMermaid.length > 0) ||
+    (estimation && estimation.length > 0) ||
+    (dataModel && dataModel.length > 0);
 
   if (!hasAny) {
     return (
@@ -110,6 +112,61 @@ export default function SummaryPane() {
         </section>
       )}
 
+      {estimation && estimation.length > 0 && (
+        <section className="mt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+            Back of envelope
+          </h3>
+          <ul className="mt-1.5 space-y-0.5 pl-3 text-xs text-gray-700 dark:text-gray-300">
+            {estimation.map((item, i) => (
+              <li key={i} className="list-disc">
+                {item}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href={`/requirements/${topic}/back-of-envelope`}
+            className="mt-1 inline-block text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+          >
+            Open
+          </Link>
+        </section>
+      )}
+
+      {dataModel && dataModel.length > 0 && (
+        <section className="mt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+            Database schema
+          </h3>
+          <ul className="mt-1.5 space-y-0.5 pl-3 text-xs text-gray-700 dark:text-gray-300">
+            {dataModel.map((item, i) => (
+              <li key={i} className="list-disc">
+                {item}
+              </li>
+            ))}
+          </ul>
+          {schemaFeedback && schemaFeedback.length > 0 && (
+            <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-800 dark:bg-violet-900/20">
+              <p className="text-xs font-medium text-violet-700 dark:text-violet-300">Schema feedback</p>
+              <ul className="mt-1 space-y-1.5">
+                {schemaFeedback.map((fb, i) => (
+                  <li key={i} className="text-xs">
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{fb.userLine}</span>
+                    <span className="ml-1 text-gray-600 dark:text-gray-400">— {fb.comment}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <Link
+            href={`/requirements/${topic}/data-model`}
+            className="mt-1 inline-block text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
+          >
+            Open
+          </Link>
+        </section>
+      )}
+
       <div className="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-3 dark:border-gray-700">
         <Link
           href={`/requirements/${topic}`}
@@ -128,6 +185,18 @@ export default function SummaryPane() {
           className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
         >
           High-level diagram →
+        </Link>
+        <Link
+          href={`/requirements/${topic}/back-of-envelope`}
+          className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
+        >
+          Back of envelope →
+        </Link>
+        <Link
+          href={`/requirements/${topic}/data-model`}
+          className="text-xs font-medium text-purple-600 hover:underline dark:text-purple-400"
+        >
+          Database schema →
         </Link>
       </div>
     </aside>

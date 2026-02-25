@@ -15,13 +15,25 @@ from app.llm import (
     call_llm_apis_2,
     call_llm_diagram_1,
     call_llm_diagram_2,
+    call_llm_estimation_1,
+    call_llm_estimation_2,
+    call_llm_estimation_calculations,
+    call_llm_data_model_1,
+    call_llm_data_model_2,
+    call_llm_data_model_feedback,
     classify_requirements_coverage,
 )
 from app.schemas import (
+    CalculationFeedbackItem,
+    DataModelFeedbackItem,
     ValidateApisRequest,
     ValidateApisResponse,
+    ValidateDataModelRequest,
+    ValidateDataModelResponse,
     ValidateDiagramRequest,
     ValidateDiagramResponse,
+    ValidateEstimationRequest,
+    ValidateEstimationResponse,
     ValidateRequest,
     ValidateResponse,
 )
@@ -153,6 +165,77 @@ async def validate_diagram(req: ValidateDiagramRequest) -> ValidateDiagramRespon
         matched=coverage["matched"],
         missed=coverage["missed"],
         suggestedDiagram=suggested_diagram,
+    )
+
+
+@app.post("/validate-estimation", response_model=ValidateEstimationResponse)
+async def validate_estimation(req: ValidateEstimationRequest) -> ValidateEstimationResponse:
+    """
+    Call two LLMs for key back-of-the-envelope estimation items for the topic,
+    merge lists, compare user's estimation items by meaning (matched/missed),
+    and run a second-step LLM to validate reasonableness of numbers/calculations per line.
+    """
+    est1, est2 = await asyncio.gather(
+        call_llm_estimation_1(req.topic),
+        call_llm_estimation_2(req.topic),
+    )
+    common = find_common_requirements(est1, est2)
+    final_elements = (
+        common if common else combine_top_requirements(est1, est2)
+    )
+    user_est = req.estimations or []
+    coverage, calculation_feedback = await asyncio.gather(
+        classify_requirements_coverage(final_elements, user_est),
+        call_llm_estimation_calculations(req.topic, user_est),
+    )
+    feedback_models = [
+        CalculationFeedbackItem(userLine=item["userLine"], reasonable=item["reasonable"], comment=item["comment"])
+        for item in calculation_feedback
+    ]
+    return ValidateEstimationResponse(
+        elements=final_elements,
+        matched=coverage["matched"],
+        missed=coverage["missed"],
+        calculationFeedback=feedback_models,
+    )
+
+
+@app.post("/validate-data-model", response_model=ValidateDataModelResponse)
+async def validate_data_model(req: ValidateDataModelRequest) -> ValidateDataModelResponse:
+    """
+    Database schema validation uses multiple LLM calls:
+    1) Two LLMs for expected schema elements (merged) — optionally based on API design.
+    2) One LLM for semantic coverage (matched/missed tables).
+    3) One LLM for per-line feedback (keys, missing fields, API alignment).
+    """
+    api_design = req.apiDesign or []
+    dm1, dm2 = await asyncio.gather(
+        call_llm_data_model_1(req.topic, api_design=api_design),
+        call_llm_data_model_2(req.topic, api_design=api_design),
+    )
+    common = find_common_requirements(dm1, dm2)
+    final_elements = (
+        common if common else combine_top_requirements(dm1, dm2)
+    )
+    user_lines = req.dataModel or []
+    coverage, feedback_result = await asyncio.gather(
+        classify_requirements_coverage(
+            final_elements, user_lines, for_schema=True, api_design=api_design
+        ),
+        call_llm_data_model_feedback(req.topic, user_lines, api_design=api_design),
+    )
+    feedback_list = feedback_result["feedback"]
+    suggested_missing = feedback_result.get("suggested_missing_tables") or []
+    feedback_models = [
+        DataModelFeedbackItem(userLine=item["userLine"], reasonable=item["reasonable"], comment=item["comment"])
+        for item in feedback_list
+    ]
+    return ValidateDataModelResponse(
+        elements=final_elements,
+        matched=coverage["matched"],
+        missed=coverage["missed"],
+        feedback=feedback_models,
+        suggestedMissingTables=suggested_missing,
     )
 
 

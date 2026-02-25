@@ -117,3 +117,105 @@ class ValidateDiagramResponse(BaseModel):
     )
 
     model_config = {"populate_by_name": True}
+
+
+class ValidateEstimationRequest(BaseModel):
+    """Request body for POST /validate-estimation."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    estimations: list[str] = Field(
+        default_factory=list,
+        description="User-provided back-of-the-envelope estimation items (e.g. one per line)",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class CalculationFeedbackItem(BaseModel):
+    """Per-line feedback on whether the user's numbers/derivations are reasonable."""
+
+    userLine: str = Field(..., alias="userLine", description="Exact user estimation line")
+    reasonable: bool = Field(..., description="True if numbers and derivation are sensible")
+    comment: str = Field(default="", description="Brief explanation from LLM")
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateEstimationResponse(BaseModel):
+    """Response body for POST /validate-estimation. Expected items + matched / missed + calculation feedback."""
+
+    elements: list[str] = Field(
+        ...,
+        description="Key estimation items that should be considered for this system",
+    )
+    matched: list[str] = Field(
+        default_factory=list,
+        description="Expected items that the user's estimations covered (by meaning)",
+    )
+    missed: list[str] = Field(
+        default_factory=list,
+        description="Expected items that the user did not include",
+    )
+    calculationFeedback: list[CalculationFeedbackItem] = Field(
+        default_factory=list,
+        alias="calculationFeedback",
+        description="Per-line feedback on reasonableness of numbers and calculations",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDataModelRequest(BaseModel):
+    """Request body for POST /validate-data-model."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    dataModel: list[str] = Field(
+        default_factory=list,
+        alias="dataModel",
+        description="User-provided data model lines (e.g. tables, entities, attributes, one per line)",
+    )
+    apiDesign: list[str] = Field(
+        default_factory=list,
+        alias="apiDesign",
+        description="API design from interview summary — validate schema against these APIs",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class DataModelFeedbackItem(BaseModel):
+    """Per-line feedback on the user's data model."""
+
+    userLine: str = Field(..., alias="userLine", description="Exact user data model line")
+    reasonable: bool = Field(..., description="True if the element is correct and fits the system")
+    comment: str = Field(default="", description="Brief explanation from LLM")
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDataModelResponse(BaseModel):
+    """Response body for POST /validate-data-model. Expected elements + matched / missed + feedback."""
+
+    elements: list[str] = Field(
+        ...,
+        description="Key data model elements that should be considered for this system",
+    )
+    matched: list[str] = Field(
+        default_factory=list,
+        description="Expected elements that the user's data model covered (by meaning)",
+    )
+    missed: list[str] = Field(
+        default_factory=list,
+        description="Expected elements that the user did not include",
+    )
+    feedback: list[DataModelFeedbackItem] = Field(
+        default_factory=list,
+        description="Per-line feedback on the user's data model",
+    )
+    suggestedMissingTables: list[str] = Field(
+        default_factory=list,
+        alias="suggestedMissingTables",
+        description="Tables suggested by feedback LLM based on API design (missing from user's schema)",
+    )
+
+    model_config = {"populate_by_name": True}

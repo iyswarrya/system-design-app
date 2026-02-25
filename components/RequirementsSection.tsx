@@ -5,6 +5,7 @@ interface RequirementsSectionProps {
   requirements: string[];
   setRequirements: (requirements: string[]) => void;
   placeholder: string;
+  addButtonLabel?: string;
 }
 
 export default function RequirementsSection({
@@ -12,6 +13,7 @@ export default function RequirementsSection({
   requirements,
   setRequirements,
   placeholder,
+  addButtonLabel = "+ Add Requirement",
 }: RequirementsSectionProps) {
   const handleChange = (index: number, value: string) => {
     const newRequirements = [...requirements];
@@ -62,7 +64,7 @@ export default function RequirementsSection({
         onClick={handleAdd}
         className="mt-6 rounded-xl border-2 border-purple-300 bg-gradient-to-r from-indigo-50 via-purple-50 to-purple-50 px-6 py-3 font-semibold text-purple-700 shadow-md transition-all duration-200 hover:scale-105 hover:bg-gradient-to-r hover:from-indigo-100 hover:via-purple-100 hover:to-purple-100 hover:shadow-lg dark:border-purple-700 dark:from-indigo-900/20 dark:via-purple-900/20 dark:to-purple-900/20 dark:text-purple-300 dark:hover:from-indigo-900/30 dark:hover:via-purple-900/30 dark:hover:to-purple-900/30"
       >
-        + Add Requirement
+        {addButtonLabel}
       </button>
     </div>
   );
