@@ -290,6 +290,210 @@ async def call_llm_validate_flow(
         return stub_result
 
 
+# --- Deep dives: suggested summary per topic ---
+
+DEEP_DIVES_PROMPT = """You are a system design expert. You are given:
+1) A system design topic (e.g. "URL Shortener", "News Feed").
+2) A list of "deep dive" sub-topics the user wants to elaborate on (e.g. "Caching strategy", "Database sharding", "Rate limiting"). For each, the user may have written their own summary/elaboration.
+
+Your task:
+A) For each deep dive sub-topic the user listed, produce a concise "suggested summary" (2-5 sentences) that would be a strong interview answer for that aspect of the system. If the user provided their own summary for a topic, also give brief feedback on it (what's good, what to add or correct).
+B) Suggest exactly 3 additional important deep dive topics that the user did NOT cover but are relevant and valuable for this system design. These should be topics an interviewer might ask about (e.g. "Fault tolerance and replication", "Consistency model", "Monitoring and observability"). Do not repeat or semantically overlap with the user's topics.
+
+Respond with valid JSON only, in this exact shape (no other text):
+{"items": [{"topic": "exact sub-topic name", "suggestedSummary": "2-5 sentences", "feedback": "brief feedback if user wrote something, else empty string"}, ...], "suggestedMissingTopics": ["Missing topic 1", "Missing topic 2", "Missing topic 3"]}
+- "items": same as before; "topic" must match the exact sub-topic string from the request; "suggestedSummary" and "feedback" as described.
+- "suggestedMissingTopics": exactly 3 strings, each a short label for an important deep dive the user missed (different from what they already listed)."""
+
+
+async def call_llm_deep_dives(
+    system_topic: str, deep_dives: list[dict]
+) -> dict:
+    """For each deep dive topic, generate suggested summary and optional feedback; also return 3 suggested missing topics. Returns {"items": [...], "suggestedMissingTopics": [...]}."""
+    empty_items = [
+        {"topic": d.get("topic", ""), "suggestedSummary": "", "feedback": ""}
+        for d in deep_dives
+    ]
+    if not deep_dives:
+        return {"items": [], "suggestedMissingTopics": []}
+    if not OPENAI_API_KEY:
+        return {
+            "items": [
+                {"topic": d.get("topic", ""), "suggestedSummary": "(No API key.)", "feedback": ""}
+                for d in deep_dives
+            ],
+            "suggestedMissingTopics": [],
+        }
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    lines = []
+    for d in deep_dives:
+        topic_name = (d.get("topic") or "").strip()
+        user_sum = (d.get("userSummary") or "").strip()
+        if not topic_name:
+            continue
+        line = f"- {topic_name}"
+        if user_sum:
+            line += f"\n  User's summary: {user_sum[:500]}"
+        lines.append(line)
+    if not lines:
+        return {"items": [], "suggestedMissingTopics": []}
+    user_content = f"System design topic: {system_topic}\n\nDeep dive topics (with optional user summary):\n" + "\n".join(lines)
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": DEEP_DIVES_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return {"items": empty_items, "suggestedMissingTopics": []}
+        data = json.loads(content)
+        raw = data.get("items") or []
+        if not isinstance(raw, list):
+            return {"items": empty_items, "suggestedMissingTopics": []}
+        topic_map = {str(x.get("topic", "")).strip(): x for x in raw}
+        result = []
+        for d in deep_dives:
+            t = (d.get("topic") or "").strip()
+            item = topic_map.get(t) or {}
+            result.append({
+                "topic": t,
+                "suggestedSummary": str(item.get("suggestedSummary") or "").strip(),
+                "feedback": str(item.get("feedback") or "").strip(),
+            })
+        raw_missing = data.get("suggestedMissingTopics") or data.get("suggested_missing_topics") or []
+        if not isinstance(raw_missing, list):
+            raw_missing = []
+        suggested_missing = [str(x).strip() for x in raw_missing if str(x).strip()][:3]
+        return {"items": result, "suggestedMissingTopics": suggested_missing}
+    except Exception:
+        return {"items": empty_items, "suggestedMissingTopics": []}
+
+
+# --- Detailed design diagram: validate against all discussed points, return feedback + suggested diagram ---
+
+DETAILED_DIAGRAM_VALIDATION_PROMPT = """You are a system design expert. You are given a system design topic and everything the user has discussed so far in their interview prep:
+
+1) Requirements (functional and non-functional).
+2) API design (APIs with request/response).
+3) Database schema / data model (key entities or schema lines).
+4) High-level diagram: component labels from their high-level architecture diagram.
+5) End-to-end flow summary (how requests/data move through the system).
+6) Deep dives: sub-topics (e.g. Caching, Sharding, Rate limiting) with their summaries.
+7) The text labels extracted from the user's DETAILED design diagram (draw.io) — the components/boxes they drew in this step.
+
+Your task:
+A) Validate whether the user's detailed diagram is consistent with and reflects ALL the points discussed: requirements, API design, database schema, high-level diagram, end-to-end flow, and deep dives. Check for alignment, missing components, and any contradictions.
+B) Give diagram-based "feedback" (2-5 sentences): what is good, what aligns or misaligns with each of the discussed areas. Be specific (e.g. "aligns with your API design and flow" or "missing the cache layer from your deep dives").
+C) Give "improvements": specific, actionable diagram improvements — missing components from requirements/API/schema/high-level/flow/deep dives, better alignment, or corrections. Empty string only if the diagram is strong across all areas.
+D) Provide a "suggested_diagram": a system-design block diagram in D2 language (https://d2lang.com). Use D2's container and shape syntax so the result looks like a clear block diagram (e.g. logical tiers or groups as containers, components as shapes inside). Use "direction: right" or "direction: down", then define containers for tiers (e.g. "client_tier: Client { browser -> app }", "server_tier: Application { lb -> api; api -> cache }", "data_tier: Data { db; cache }") and connections between them. You can use nested blocks: "tier_name: Label { node1; node2; node1 -> node2 }". Use rectangles (default) and optionally "shape: cylinder" for databases. Incorporate requirements, APIs, schema, high-level components, flow, and deep dives. Keep under ~35 lines and valid D2. Example:
+direction: right
+client_tier: Client {
+  browser -> app
+}
+server_tier: Application {
+  lb -> api
+  api -> cache
+  api -> db
+}
+db: { shape: cylinder }
+client_tier.app -> server_tier.lb
+server_tier.api -> db
+
+Respond with valid JSON only, in this exact shape (no other text):
+{"feedback": "2-5 sentences", "improvements": "actionable suggestions or empty string", "suggested_diagram": "direction: right\\n  client_tier: Client { ... }\\n  ..."}
+- Use the key "suggested_diagram" for the D2 block diagram source. Escape newlines as \\n in the JSON value. Output valid D2 only."""
+
+
+async def call_llm_validate_detailed_diagram(
+    topic: str,
+    requirements_summary: str,
+    api_design_summary: str,
+    data_model_summary: str,
+    high_level_labels: list[str],
+    end_to_end_flow: str,
+    deep_dives: list[dict],
+    diagram_labels: list[str],
+) -> dict:
+    """Validate user's detailed diagram against all discussed points; return feedback, improvements, and a suggested Mermaid diagram."""
+    stub = {
+        "feedback": "Validation skipped (no API key or missing context).",
+        "improvements": "",
+        "suggested_diagram": "direction: right\n  client_tier: Client { browser -> app }\n  server_tier: Application { lb -> api; api -> db }\n  client_tier.app -> server_tier.lb",
+    }
+    if not OPENAI_API_KEY:
+        return stub
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    flow_text = (end_to_end_flow or "").strip()
+    deep_lines = []
+    for d in deep_dives or []:
+        t = (d.get("topic") or "").strip()
+        if not t:
+            continue
+        user_s = (d.get("userSummary") or "").strip()
+        sugg_s = (d.get("suggestedSummary") or "").strip()
+        summary = sugg_s if sugg_s else user_s
+        deep_lines.append(f"- {t}: {summary[:400]}" if summary else f"- {t}")
+    deep_block = "\n".join(deep_lines) if deep_lines else "(No deep dives provided.)"
+    high_level_text = ", ".join(high_level_labels) if high_level_labels else "(None provided.)"
+    labels_text = ", ".join(diagram_labels) if diagram_labels else "(No diagram labels extracted.)"
+    user_content = f"""System design topic: {topic}
+
+Requirements (functional and non-functional):
+{requirements_summary or "(None provided.)"}
+
+API design:
+{api_design_summary or "(None provided.)"}
+
+Database schema / data model:
+{data_model_summary or "(None provided.)"}
+
+High-level diagram component labels:
+{high_level_text}
+
+End-to-end flow (user's summary):
+{flow_text or "(No flow provided.)"}
+
+Deep dives (topic and summary):
+{deep_block}
+
+Labels from the user's DETAILED diagram (components they drew):
+{labels_text}
+
+Produce JSON with "feedback", "improvements", and "suggested_diagram" (D2 diagram source) as described in the system prompt."""
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": DETAILED_DIAGRAM_VALIDATION_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return stub
+        data = json.loads(content)
+        feedback = str(data.get("feedback") or "").strip() or stub["feedback"]
+        improvements = str(data.get("improvements") or "").strip()
+        suggested = (
+            (data.get("suggested_diagram") or data.get("suggestedDiagram") or "").strip()
+            .replace("\\n", "\n")
+        )
+        if not suggested:
+            suggested = stub["suggested_diagram"]
+        return {
+            "feedback": feedback,
+            "improvements": improvements,
+            "suggested_diagram": suggested,
+        }
+    except Exception:
+        return stub
+
+
 # --- Back-of-the-envelope estimation: key estimation items from two LLMs ---
 
 ESTIMATION_LLM_SYSTEM_PROMPT = """You are a system design expert. For a given system design topic, list 5-7 key back-of-the-envelope estimation items that should be considered (e.g. DAU/MAU or user scale, Queries per second (QPS), Storage size, Bandwidth, Read/write ratio, Cache hit rate, Data retention). Each item should be a short label describing what to estimate. Respond only with valid JSON in this exact shape, no other text:

@@ -16,7 +16,8 @@ export default function ApiDesignPage() {
   const topic = params.topic as string;
   const { apiDesign: savedApiDesign, setApiDesign } = useSummary();
   const [apiRows, setApiRows] = useState<ApiDesignRow[]>(() => [emptyRow()]);
-  const [saved, setSaved] = useState(false);
+  const [savedMy, setSavedMy] = useState(false);
+  const [savedSuggested, setSavedSuggested] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<{
     apis: string[];
@@ -43,33 +44,43 @@ export default function ApiDesignPage() {
       next[index] = { ...next[index], [field]: value };
       return next;
     });
-    setSaved(false);
+    setSavedMy(false);
+    setSavedSuggested(false);
   };
 
   const addRow = () => {
     setApiRows((prev) => [...prev, emptyRow()]);
-    setSaved(false);
+    setSavedMy(false);
+    setSavedSuggested(false);
   };
 
   const removeRow = (index: number) => {
     if (apiRows.length <= 1) return;
     setApiRows((prev) => prev.filter((_, i) => i !== index));
-    setSaved(false);
+    setSavedMy(false);
+    setSavedSuggested(false);
   };
 
-  const handleSave = () => {
-    const correctApis = validationResults?.apis;
-    if (correctApis && correctApis.length > 0) {
-      setApiDesign(correctApis.map((api) => ({ api, request: "", response: "" })));
-    } else {
-      setApiDesign(apiRows);
-    }
-    setSaved(true);
+  const handleSaveMy = () => {
+    setApiDesign(apiRows.filter((r) => r.api.trim()));
+    setSavedMy(true);
+    setSavedSuggested(false);
+  };
+
+  const handleSaveSuggested = () => {
+    if (!validationResults?.apis?.length) return;
+    setApiDesign(
+      validationResults.apis.map((api) => ({ api, request: "", response: "" }))
+    );
+    setSavedSuggested(true);
+    setSavedMy(false);
   };
 
   const handleValidate = async () => {
     setIsValidating(true);
     setValidationResults(null);
+    setSavedMy(false);
+    setSavedSuggested(false);
     try {
       const res = await fetch(`${API_BASE}/validate-apis`, {
         method: "POST",
@@ -174,19 +185,28 @@ export default function ApiDesignPage() {
             </button>
             <button
               type="button"
-              onClick={handleSave}
-              disabled={userApis.length === 0 && !validationResults?.apis?.length}
+              onClick={handleSaveMy}
+              disabled={userApis.length === 0}
               className="rounded-xl border-2 border-purple-400 bg-white px-6 py-3 text-base font-semibold text-purple-600 transition-colors hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
             >
-              {validationResults?.apis?.length
-                ? "Save correct APIs to summary"
-                : "Save to summary"}
+              Save my API design to summary
             </button>
-            {saved && (
+            <button
+              type="button"
+              onClick={handleSaveSuggested}
+              disabled={!validationResults?.apis?.length}
+              className="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-6 py-3 text-base font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+            >
+              Save suggested API feedback to summary
+            </button>
+            {savedMy && (
               <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                {validationResults?.apis?.length
-                  ? "Correct API design saved to summary"
-                  : "Saved to interview summary"}
+                My API design saved
+              </span>
+            )}
+            {savedSuggested && (
+              <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                Suggested API feedback saved
               </span>
             )}
             <Link

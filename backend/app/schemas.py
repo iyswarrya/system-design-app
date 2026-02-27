@@ -156,6 +156,173 @@ class ValidateFlowResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class DeepDiveItemInput(BaseModel):
+    """One deep dive topic with optional user elaboration."""
+
+    topic: str = Field(..., description="Deep dive topic name (e.g. Caching strategy, Sharding)")
+    userSummary: str = Field(
+        default="",
+        alias="userSummary",
+        description="User's elaboration/summary for this deep dive",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDeepDivesRequest(BaseModel):
+    """Request body for POST /validate-deep-dives."""
+
+    topic: str = Field(..., min_length=1, description="System design topic (e.g. URL Shortener)")
+    deepDives: list[DeepDiveItemInput] = Field(
+        default_factory=list,
+        alias="deepDives",
+        description="List of deep dive topics with optional user summaries",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class DeepDiveItemResponse(BaseModel):
+    """One deep dive with suggested summary and optional feedback."""
+
+    topic: str = Field(..., description="Deep dive topic (echoed from request)")
+    suggestedSummary: str = Field(
+        default="",
+        alias="suggestedSummary",
+        description="LLM-generated suggested summary for this deep dive",
+    )
+    feedback: str = Field(
+        default="",
+        description="Optional feedback on the user's summary if they provided one",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDeepDivesResponse(BaseModel):
+    """Response body for POST /validate-deep-dives."""
+
+    items: list[DeepDiveItemResponse] = Field(
+        default_factory=list,
+        description="Suggested summary and feedback per deep dive topic",
+    )
+    suggestedMissingTopics: list[str] = Field(
+        default_factory=list,
+        alias="suggestedMissingTopics",
+        description="Up to 3 important deep dive topics the user missed (LLM-suggested)",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class DetailedDiagramDeepDiveInput(BaseModel):
+    """One deep dive for detailed diagram validation context."""
+
+    topic: str = Field(default="", description="Deep dive topic name")
+    userSummary: str = Field(
+        default="",
+        alias="userSummary",
+        description="User's elaboration for this deep dive",
+    )
+    suggestedSummary: str = Field(
+        default="",
+        alias="suggestedSummary",
+        description="LLM-suggested summary (from earlier step) for context",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class RequirementsInput(BaseModel):
+    """Requirements summary for detailed diagram validation."""
+
+    functional: list[str] = Field(default_factory=list, description="Functional requirements")
+    nonFunctional: list[str] = Field(
+        default_factory=list,
+        alias="nonFunctional",
+        description="Non-functional requirements",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ApiDesignRowInput(BaseModel):
+    """One API row for detailed diagram validation."""
+
+    api: str = Field(default="", description="API description")
+    request: str = Field(default="", description="Request")
+    response: str = Field(default="", description="Response")
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDetailedDiagramRequest(BaseModel):
+    """Request body for POST /validate-detailed-diagram. Validates diagram against all discussed points."""
+
+    topic: str = Field(..., min_length=1, description="System design topic")
+    diagramXml: str = Field(
+        default="",
+        alias="diagramXml",
+        description="Draw.io detailed diagram XML (labels extracted for comparison)",
+    )
+    requirements: RequirementsInput | None = Field(
+        default=None,
+        description="User's requirements (functional + non-functional) for context",
+    )
+    apiDesign: list[ApiDesignRowInput] = Field(
+        default_factory=list,
+        alias="apiDesign",
+        description="User's API design for context",
+    )
+    dataModel: list[str] = Field(
+        default_factory=list,
+        alias="dataModel",
+        description="User's database schema / data model for context",
+    )
+    highLevelDiagramXml: str = Field(
+        default="",
+        alias="highLevelDiagramXml",
+        description="High-level diagram XML (labels extracted for context)",
+    )
+    endToEndFlow: str = Field(
+        default="",
+        alias="endToEndFlow",
+        description="User's saved end-to-end flow summary (for validation context)",
+    )
+    deepDives: list[DetailedDiagramDeepDiveInput] = Field(
+        default_factory=list,
+        alias="deepDives",
+        description="User's deep dives (topic + user/suggested summary) for context",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class ValidateDetailedDiagramResponse(BaseModel):
+    """Response body for POST /validate-detailed-diagram. Feedback + suggested diagram (PNG and optional Mermaid)."""
+
+    feedback: str = Field(
+        default="",
+        description="Overall feedback on how the detailed diagram aligns with flow and deep dives",
+    )
+    improvements: str = Field(
+        default="",
+        description="Specific suggestions: missing components, alignment with flow, deep dive coverage",
+    )
+    suggestedDiagram: str = Field(
+        default="",
+        alias="suggestedDiagram",
+        description="LLM-generated detailed diagram (Mermaid) as fallback/reference",
+    )
+    suggestedDiagramPng: str = Field(
+        default="",
+        alias="suggestedDiagramPng",
+        description="LLM-generated diagram rendered as PNG (data URL) for feedback",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class ValidateEstimationRequest(BaseModel):
     """Request body for POST /validate-estimation."""
 

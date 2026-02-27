@@ -12,7 +12,7 @@ const API_BASE =
 export default function DatabaseSchemaPage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { setDataModel, setSchemaFeedback, apiDesign } = useSummary();
+  const { setDataModel, setSchemaFeedback, setSchemaMissed, apiDesign } = useSummary();
   const [schemaItems, setSchemaItems] = useState<string[]>([""]);
   const [saved, setSaved] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -36,10 +36,11 @@ export default function DatabaseSchemaPage() {
   const handleSave = () => {
     setDataModel(userSchemaLines);
     setSchemaFeedback(null);
+    setSchemaMissed(null);
     setSaved(true);
   };
 
-  const handleSaveCorrect = () => {
+  const handleSaveSuggestedFeedback = () => {
     if (!validationResults?.elements?.length) return;
     setDataModel(validationResults.elements);
     setSchemaFeedback(
@@ -50,6 +51,9 @@ export default function DatabaseSchemaPage() {
             comment: fb.comment,
           }))
         : null
+    );
+    setSchemaMissed(
+      (validationResults.missed ?? []).length > 0 ? validationResults.missed : null
     );
     setSaved(true);
   };
@@ -136,10 +140,10 @@ export default function DatabaseSchemaPage() {
             {validationResults?.elements?.length ? (
               <button
                 type="button"
-                onClick={handleSaveCorrect}
+                onClick={handleSaveSuggestedFeedback}
                 className="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-6 py-3 text-base font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
               >
-                Save correct schema to summary
+                Save suggested schema feedback to summary
               </button>
             ) : null}
             {saved && (

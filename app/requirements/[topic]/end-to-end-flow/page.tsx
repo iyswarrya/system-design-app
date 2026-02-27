@@ -11,9 +11,10 @@ const API_BASE =
 export default function EndToEndFlowPage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { endToEndFlow, setEndToEndFlow, diagramXml } = useSummary();
+  const { endToEndFlow, setEndToEndFlow, setFlowValidationFeedback, diagramXml } = useSummary();
   const [flowText, setFlowText] = useState("");
   const [saved, setSaved] = useState(false);
+  const [savedFeedback, setSavedFeedback] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{
     correct: boolean;
@@ -34,6 +35,7 @@ export default function EndToEndFlowPage() {
     if (!flowText.trim()) return;
     setIsValidating(true);
     setValidationResult(null);
+    setSavedFeedback(false);
     try {
       const res = await fetch(`${API_BASE}/validate-flow`, {
         method: "POST",
@@ -62,6 +64,16 @@ export default function EndToEndFlowPage() {
   const handleSave = () => {
     setEndToEndFlow(flowText.trim() || null);
     setSaved(true);
+  };
+
+  const handleSaveFeedback = () => {
+    if (!validationResult) return;
+    setFlowValidationFeedback({
+      correct: validationResult.correct,
+      feedback: validationResult.feedback,
+      improvements: validationResult.improvements,
+    });
+    setSavedFeedback(true);
   };
 
   return (
@@ -94,6 +106,7 @@ export default function EndToEndFlowPage() {
             onChange={(e) => {
               setFlowText(e.target.value);
               setSaved(false);
+              setSavedFeedback(false);
               setValidationResult(null);
             }}
             placeholder="e.g. User request hits the load balancer, which forwards to API servers. API servers check cache; on miss they read from the database and optionally write to cache. Response is returned to the client."
@@ -124,11 +137,22 @@ export default function EndToEndFlowPage() {
                 Flow saved to interview summary
               </span>
             )}
+            {savedFeedback && (
+              <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                Flow validation feedback saved
+              </span>
+            )}
           </div>
           <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-purple-200 pt-6 dark:border-purple-700">
             <Link
-              href={`/requirements/${topic}`}
+              href={`/requirements/${topic}/deep-dives`}
               className="rounded-xl bg-gray-800 px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
+            >
+              Next: Deep dives →
+            </Link>
+            <Link
+              href={`/requirements/${topic}`}
+              className="rounded-xl border-2 border-gray-300 bg-white px-6 py-3 text-base font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
             >
               ← Back to requirements
             </Link>
@@ -163,6 +187,15 @@ export default function EndToEndFlowPage() {
                   </p>
                 </div>
               )}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleSaveFeedback}
+                  className="rounded-lg border-2 border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+                >
+                  Save flow validation feedback to summary
+                </button>
+              </div>
             </div>
           </div>
         )}

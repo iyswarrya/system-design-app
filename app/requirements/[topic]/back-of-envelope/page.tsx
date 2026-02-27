@@ -11,9 +11,10 @@ const API_BASE =
 export default function BackOfEnvelopePage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { setEstimation } = useSummary();
+  const { setEstimation, setEstimationFeedback, setEstimationMissed } = useSummary();
   const [estimationLines, setEstimationLines] = useState<string>("");
-  const [saved, setSaved] = useState(false);
+  const [savedUser, setSavedUser] = useState(false);
+  const [savedSuggested, setSavedSuggested] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<{
     elements: string[];
@@ -32,15 +33,38 @@ export default function BackOfEnvelopePage() {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const handleSave = () => {
-    // Save the user's full estimation lines (with numbers and derivations) to the interview summary
+  const handleSaveUserSummary = () => {
     setEstimation(userEstimations);
-    setSaved(true);
+    setEstimationFeedback(null);
+    setEstimationMissed(null);
+    setSavedUser(true);
+    setSavedSuggested(false);
+  };
+
+  const handleSaveSuggestedSummary = () => {
+    if (!validationResults?.elements?.length) return;
+    setEstimation(validationResults.elements);
+    setEstimationFeedback(
+      (validationResults.calculationFeedback ?? []).length > 0
+        ? validationResults.calculationFeedback.map((fb) => ({
+            userLine: fb.userLine,
+            reasonable: fb.reasonable,
+            comment: fb.comment,
+          }))
+        : null
+    );
+    setEstimationMissed(
+      (validationResults.missed ?? []).length > 0 ? validationResults.missed : null
+    );
+    setSavedSuggested(true);
+    setSavedUser(false);
   };
 
   const handleValidate = async () => {
     setIsValidating(true);
     setValidationResults(null);
+    setSavedUser(false);
+    setSavedSuggested(false);
     try {
       const res = await fetch(`${API_BASE}/validate-estimation`, {
         method: "POST",
@@ -95,7 +119,8 @@ export default function BackOfEnvelopePage() {
             value={estimationLines}
             onChange={(e) => {
               setEstimationLines(e.target.value);
-              setSaved(false);
+              setSavedUser(false);
+              setSavedSuggested(false);
             }}
             placeholder={"DAU / MAU or user scale\nQueries per second (QPS)\nStorage size\nBandwidth\nRead/write ratio"}
             rows={10}
@@ -114,15 +139,28 @@ export default function BackOfEnvelopePage() {
             </button>
             <button
               type="button"
-              onClick={handleSave}
+              onClick={handleSaveUserSummary}
               disabled={!estimationLines.trim()}
               className="rounded-xl border-2 border-purple-400 bg-white px-6 py-3 text-base font-semibold text-purple-600 transition-colors hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
             >
-              Save estimations to summary
+              Save my Back of the envelope estimation to summary
             </button>
-            {saved && (
+            <button
+              type="button"
+              onClick={handleSaveSuggestedSummary}
+              disabled={!validationResults?.elements?.length}
+              className="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-6 py-3 text-base font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+            >
+              Save suggested Back of the envelope feedback to summary
+            </button>
+            {savedUser && (
               <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                Estimations saved to interview summary
+                Back of the envelope estimation saved to summary
+              </span>
+            )}
+            {savedSuggested && (
+              <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                Suggested Back of the envelope feedback saved to summary
               </span>
             )}
             <Link

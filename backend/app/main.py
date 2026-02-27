@@ -1,8 +1,10 @@
 """FastAPI app: single POST /validate endpoint, CORS for Next.js frontend."""
 
 import asyncio
+import base64
 from contextlib import asynccontextmanager
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,11 +24,14 @@ from app.llm import (
     call_llm_data_model_2,
     call_llm_data_model_feedback,
     call_llm_validate_flow,
+    call_llm_validate_detailed_diagram,
+    call_llm_deep_dives,
     classify_requirements_coverage,
 )
 from app.schemas import (
     CalculationFeedbackItem,
     DataModelFeedbackItem,
+    DeepDiveItemResponse,
     ValidateApisRequest,
     ValidateApisResponse,
     ValidateDataModelRequest,
@@ -37,6 +42,10 @@ from app.schemas import (
     ValidateEstimationResponse,
     ValidateFlowRequest,
     ValidateFlowResponse,
+    ValidateDeepDivesRequest,
+    ValidateDeepDivesResponse,
+    ValidateDetailedDiagramRequest,
+    ValidateDetailedDiagramResponse,
     ValidateRequest,
     ValidateResponse,
 )
@@ -191,6 +200,141 @@ async def validate_flow(req: ValidateFlowRequest) -> ValidateFlowResponse:
         correct=result["correct"],
         feedback=result["feedback"],
         improvements=result.get("improvements", ""),
+    )
+
+
+@app.post("/validate-deep-dives", response_model=ValidateDeepDivesResponse)
+async def validate_deep_dives(req: ValidateDeepDivesRequest) -> ValidateDeepDivesResponse:
+    """
+    For each deep dive topic, generate a suggested summary and optional feedback; also return 3 suggested missing topics.
+    """
+    raw = req.deepDives or []
+    payload = [{"topic": getattr(d, "topic", ""), "userSummary": getattr(d, "userSummary", "") or ""} for d in raw]
+    result = await call_llm_deep_dives(req.topic, payload)
+    items_data = result.get("items") or []
+    missing = result.get("suggestedMissingTopics") or []
+    return ValidateDeepDivesResponse(
+        items=[DeepDiveItemResponse(topic=x["topic"], suggestedSummary=x["suggestedSummary"], feedback=x.get("feedback", "")) for x in items_data],
+        suggestedMissingTopics=missing[:3],
+    )
+
+
+KROKI_URL = "https://kroki.io"
+
+
+async def mermaid_to_png_data_url(mermaid: str) -> str:
+    """Convert Mermaid diagram source to PNG via Kroki; return data URL or empty string."""
+    if not (mermaid or "").strip():
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{KROKI_URL}/mermaid/png",
+                content=mermaid.strip().encode("utf-8"),
+                headers={"Content-Type": "text/plain"},
+            )
+            if r.status_code != 200 or not r.content:
+                return ""
+            b64 = base64.standard_b64encode(r.content).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+    except Exception:
+        return ""
+
+
+async def d2_to_png_data_url(d2_source: str) -> str:
+    """Convert D2 diagram source to PNG via Kroki; return data URL or empty string."""
+    if not (d2_source or "").strip():
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                f"{KROKI_URL}/d2/png",
+                content=d2_source.strip().encode("utf-8"),
+                headers={"Content-Type": "text/plain"},
+            )
+            if r.status_code != 200 or not r.content:
+                return ""
+            b64 = base64.standard_b64encode(r.content).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+    except Exception:
+        return ""
+
+
+def _requirements_summary(req_in: ValidateDetailedDiagramRequest) -> str:
+    if not req_in.requirements:
+        return ""
+    r = req_in.requirements
+    func = getattr(r, "functional", None) or []
+    non_func = getattr(r, "nonFunctional", None) or []
+    lines = []
+    if func:
+        lines.append("Functional: " + "; ".join(str(x) for x in func[:10]))
+    if non_func:
+        lines.append("Non-functional: " + "; ".join(str(x) for x in non_func[:10]))
+    return "\n".join(lines)
+
+
+def _api_design_summary(api_design: list) -> str:
+    if not api_design:
+        return ""
+    lines = []
+    for row in api_design[:15]:
+        if isinstance(row, dict):
+            api, req, res = str(row.get("api", "") or ""), str(row.get("request", "") or ""), str(row.get("response", "") or "")
+        else:
+            api = str(getattr(row, "api", "") or "")
+            req = str(getattr(row, "request", "") or "")
+            res = str(getattr(row, "response", "") or "")
+        if api:
+            req_part = f" (request: {req[:80]}...)" if len(req) > 80 else (f" (request: {req})" if req else "")
+            res_part = f" (response: {res[:80]}...)" if len(res) > 80 else (f" (response: {res})" if res else "")
+            lines.append(f"- {api}{req_part}{res_part}")
+    return "\n".join(lines) if lines else ""
+
+
+@app.post("/validate-detailed-diagram", response_model=ValidateDetailedDiagramResponse)
+async def validate_detailed_diagram(req: ValidateDetailedDiagramRequest) -> ValidateDetailedDiagramResponse:
+    """
+    Validate the user's detailed design diagram against all discussed points: requirements,
+    API design, database schema, high-level diagram, end-to-end flow, and deep dives.
+    Returns text feedback, improvements, and a suggested Mermaid diagram as reference.
+    """
+    diagram_labels = extract_text_from_drawio_xml(req.diagramXml or "")
+    high_level_labels = extract_text_from_drawio_xml(req.highLevelDiagramXml or "")
+    requirements_summary = _requirements_summary(req)
+    api_list = req.apiDesign or []
+    api_design_summary = _api_design_summary(api_list)
+    data_model_summary = "\n".join(str(x) for x in (req.dataModel or [])[:30])
+    raw_dives = req.deepDives or []
+    deep_dives_payload = [
+        {
+            "topic": getattr(d, "topic", "") or "",
+            "userSummary": getattr(d, "userSummary", "") or "",
+            "suggestedSummary": getattr(d, "suggestedSummary", "") or "",
+        }
+        for d in raw_dives
+    ]
+    result = await call_llm_validate_detailed_diagram(
+        topic=req.topic,
+        requirements_summary=requirements_summary,
+        api_design_summary=api_design_summary,
+        data_model_summary=data_model_summary,
+        high_level_labels=high_level_labels,
+        end_to_end_flow=req.endToEndFlow or "",
+        deep_dives=deep_dives_payload,
+        diagram_labels=diagram_labels,
+    )
+    suggested_diagram = result.get("suggested_diagram", "") or ""
+    suggested_diagram_png = ""
+    if suggested_diagram.strip():
+        suggested_diagram_png = await d2_to_png_data_url(suggested_diagram)
+        if not suggested_diagram_png:
+            suggested_diagram_png = await mermaid_to_png_data_url(suggested_diagram)
+    return ValidateDetailedDiagramResponse(
+        feedback=result.get("feedback", ""),
+        improvements=result.get("improvements", ""),
+        suggestedDiagram=suggested_diagram,
+        suggestedDiagramPng=suggested_diagram_png,
     )
 
 

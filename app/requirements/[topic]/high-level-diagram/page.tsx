@@ -12,11 +12,13 @@ const API_BASE =
 export default function HighLevelDiagramPage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { diagramXml, setDiagramXml, setSuggestedDiagramMermaid } = useSummary();
+  const { diagramXml, setDiagramXml, setDiagramPng, setSuggestedDiagramMermaid } = useSummary();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [saved, setSaved] = useState(false);
   const [ready, setReady] = useState(false);
   const exportForValidateRef = useRef(false);
+  const exportForPngRef = useRef(false);
+  const [isExportingPng, setIsExportingPng] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<{
     elements: string[];
@@ -85,6 +87,18 @@ export default function HighLevelDiagramPage() {
           setReady(true);
           sendLoad(diagramXml ?? "");
         }
+        const isExportPng =
+          msg.event === "export" &&
+          (msg.format === "png" || msg.format === "xmlpng") &&
+          exportForPngRef.current &&
+          typeof msg.data === "string";
+        if (isExportPng) {
+          exportForPngRef.current = false;
+          setIsExportingPng(false);
+          const dataUrl = msg.data.startsWith("data:image") ? msg.data : "data:image/png;base64," + msg.data;
+          setDiagramPng(dataUrl);
+          setSaved(true);
+        }
         const isExportXml =
           msg.event === "export" &&
           (msg.format === "xml" || msg.format === "xmlsvg") &&
@@ -113,7 +127,7 @@ export default function HighLevelDiagramPage() {
               runValidation(xml);
             } else {
               setDiagramXml(xml);
-              setSaved(true);
+              if (!exportForPngRef.current) setSaved(true);
             }
           }
         }
@@ -126,16 +140,28 @@ export default function HighLevelDiagramPage() {
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [diagramXml, setDiagramXml, sendLoad, runValidation]);
+  }, [diagramXml, setDiagramXml, setDiagramPng, sendLoad, runValidation]);
 
-  const handleSaveToSummary = () => {
+  const handleSaveToSummaryAsPng = () => {
     exportForValidateRef.current = false;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
+    exportForPngRef.current = true;
+    setIsExportingPng(true);
+    win.postMessage(
+      JSON.stringify({ action: "export", format: "png" }),
+      DIAGRAM_EMBED_ORIGIN
+    );
     win.postMessage(
       JSON.stringify({ action: "export", format: "xmlsvg" }),
       DIAGRAM_EMBED_ORIGIN
     );
+    window.setTimeout(() => {
+      if (exportForPngRef.current) {
+        exportForPngRef.current = false;
+        setIsExportingPng(false);
+      }
+    }, 8000);
   };
 
   const handleValidate = () => {
@@ -162,7 +188,7 @@ export default function HighLevelDiagramPage() {
           runValidation(diagramXml);
         } else {
           alert(
-            "Could not get diagram from editor. Draw something, click \"Save to summary\", then click \"Validate diagram\" again."
+            "Could not get diagram from editor. Draw something, click \"Save user's diagram to summary as PNG\", then click \"Validate diagram\" again."
           );
         }
       }
@@ -185,7 +211,7 @@ export default function HighLevelDiagramPage() {
               {topicName} – High-level diagram
             </h1>
             <p className="mt-1 text-gray-600 dark:text-gray-400">
-              Draw your system architecture with diagrams.net (draw.io). Save to add it to your interview summary.
+              Draw your system architecture with diagrams.net (draw.io). Save your diagram as PNG to add it to your interview summary.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -199,10 +225,11 @@ export default function HighLevelDiagramPage() {
             </button>
             <button
               type="button"
-              onClick={handleSaveToSummary}
-              className="rounded-xl border-2 border-purple-400 bg-white px-5 py-2.5 text-sm font-semibold text-purple-600 transition-colors hover:bg-purple-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
+              onClick={handleSaveToSummaryAsPng}
+              disabled={isExportingPng}
+              className="rounded-xl border-2 border-purple-400 bg-white px-5 py-2.5 text-sm font-semibold text-purple-600 transition-colors hover:bg-purple-50 disabled:opacity-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
             >
-              Save to summary
+              {isExportingPng ? "Exporting..." : "Save user's diagram to summary as PNG"}
             </button>
             {saved && (
               <span className="text-sm font-medium text-green-600 dark:text-green-400">

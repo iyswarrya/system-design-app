@@ -17,6 +17,8 @@ export default function RequirementsForm({ topic, topicSlug }: RequirementsFormP
   const { setRequirements } = useSummary();
   const [functionalReqs, setFunctionalReqs] = useState<string[]>([""]);
   const [nonFunctionalReqs, setNonFunctionalReqs] = useState<string[]>([""]);
+  const [savedMy, setSavedMy] = useState(false);
+  const [savedSuggested, setSavedSuggested] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationResults, setValidationResults] = useState<{
     functional: string[];
@@ -29,6 +31,8 @@ export default function RequirementsForm({ topic, topicSlug }: RequirementsFormP
 
   const handleValidate = async () => {
     setIsValidating(true);
+    setSavedMy(false);
+    setSavedSuggested(false);
     try {
       const res = await fetch(`${API_BASE}/validate`, {
         method: "POST",
@@ -87,16 +91,45 @@ export default function RequirementsForm({ topic, topicSlug }: RequirementsFormP
         <button
           type="button"
           onClick={() => {
-            const func = validationResults?.functional ?? functionalReqs.filter((r) => r.trim() !== "");
-            const nonFunc = validationResults?.nonFunctional ?? nonFunctionalReqs.filter((r) => r.trim() !== "");
+            const func = functionalReqs.filter((r) => r.trim() !== "");
+            const nonFunc = nonFunctionalReqs.filter((r) => r.trim() !== "");
             if (func.length || nonFunc.length) {
               setRequirements({ functional: func, nonFunctional: nonFunc });
+              setSavedMy(true);
+              setSavedSuggested(false);
             }
           }}
-          className="rounded-xl border-2 border-purple-400 bg-white px-6 py-3 text-base font-semibold text-purple-600 transition-colors hover:bg-purple-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
+          disabled={!functionalReqs.some((r) => r.trim()) && !nonFunctionalReqs.some((r) => r.trim())}
+          className="rounded-xl border-2 border-purple-400 bg-white px-6 py-3 text-base font-semibold text-purple-600 transition-colors hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-purple-500 dark:bg-gray-800 dark:text-purple-400 dark:hover:bg-purple-900/30"
         >
-          Save to summary
+          Save my requirements to summary
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!validationResults?.functional?.length && !validationResults?.nonFunctional?.length) return;
+            setRequirements({
+              functional: validationResults?.functional ?? [],
+              nonFunctional: validationResults?.nonFunctional ?? [],
+            });
+            setSavedSuggested(true);
+            setSavedMy(false);
+          }}
+          disabled={!validationResults || (!validationResults.functional?.length && !validationResults.nonFunctional?.length)}
+          className="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-6 py-3 text-base font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+        >
+          Save suggested requirements to summary
+        </button>
+        {savedMy && (
+          <span className="text-sm font-medium text-green-600 dark:text-green-400">
+            My requirements saved
+          </span>
+        )}
+        {savedSuggested && (
+          <span className="text-sm font-medium text-green-600 dark:text-green-400">
+            Suggested requirements saved
+          </span>
+        )}
         <Link
           href={`/requirements/${topicSlug}/api-design`}
           className="rounded-xl bg-gray-800 px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600"
