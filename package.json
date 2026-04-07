@@ -9,7 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "jose": "^5.9.6",
+    "mermaid": "^10.9.1",
     "next": "16.1.5",
+    "prisma": "^6.0.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

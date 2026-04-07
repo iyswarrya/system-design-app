@@ -35,6 +35,9 @@ yarn-error.log*
 .env.local
 .env.*.local
 backend/.env
+.db
+/dev.db
+.db-journal
 
 # Python
 backend/venv/

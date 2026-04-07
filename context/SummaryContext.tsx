@@ -25,6 +25,84 @@ export interface EstimationFeedbackItem {
   comment: string;
 }
 
+export type EstimationComparisonStatus =
+  | "correct"
+  | "close"
+  | "incorrect"
+  | "missing";
+
+/** Saved from Validate estimation — reference derivations + per-category comparison. */
+export interface EstimationStructuredFeedback {
+  expectedEstimations: {
+    item: string;
+    expectedValue: string;
+    derivation: string;
+  }[];
+  comparisonFeedback: {
+    item: string;
+    userValue: string;
+    expectedValue: string;
+    status: EstimationComparisonStatus;
+    feedback: string;
+  }[];
+  missingItems: string[];
+  overallFeedback: string;
+}
+
+function parseEstimationStructured(
+  raw: unknown
+): EstimationStructuredFeedback | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const exp = Array.isArray(o.expectedEstimations) ? o.expectedEstimations : [];
+  const comp = Array.isArray(o.comparisonFeedback) ? o.comparisonFeedback : [];
+  const expectedEstimations = exp
+    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object")
+    .map((x) => ({
+      item: String(x.item ?? ""),
+      expectedValue: String(x.expectedValue ?? ""),
+      derivation: String(x.derivation ?? ""),
+    }))
+    .filter((x) => x.item && x.expectedValue);
+  const comparisonFeedback = comp
+    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object")
+    .map((x) => {
+      const st = String(x.status ?? "").toLowerCase();
+      const status: EstimationComparisonStatus =
+        st === "correct" || st === "close" || st === "incorrect" || st === "missing"
+          ? st
+          : "incorrect";
+      return {
+        item: String(x.item ?? ""),
+        userValue: String(x.userValue ?? ""),
+        expectedValue: String(x.expectedValue ?? ""),
+        status,
+        feedback: String(x.feedback ?? ""),
+      };
+    })
+    .filter((x) => x.item);
+  const miss = o.missingItems;
+  const missingItems = Array.isArray(miss)
+    ? miss.map((m) => String(m)).filter(Boolean)
+    : [];
+  const overallFeedback =
+    typeof o.overallFeedback === "string" ? o.overallFeedback : "";
+  if (
+    expectedEstimations.length === 0 &&
+    comparisonFeedback.length === 0 &&
+    missingItems.length === 0 &&
+    !overallFeedback.trim()
+  ) {
+    return null;
+  }
+  return {
+    expectedEstimations,
+    comparisonFeedback,
+    missingItems,
+    overallFeedback,
+  };
+}
+
 export interface ApiDesignRow {
   api: string;
   request: string;
@@ -61,6 +139,8 @@ export interface SummaryState {
   deepDives: DeepDiveItem[];
   estimation: string[];
   estimationFeedback: EstimationFeedbackItem[] | null;
+  /** Rich validation output (reference + comparison + missing categories). */
+  estimationStructured: EstimationStructuredFeedback | null;
   /** When set, shows "items you missed" under Back of envelope (from Save suggested summary). */
   estimationMissed: string[] | null;
   dataModel: string[];
@@ -86,6 +166,7 @@ const EMPTY_SUMMARY_STATE: SummaryState = {
   deepDives: [],
   estimation: [],
   estimationFeedback: null,
+  estimationStructured: null,
   estimationMissed: null,
   dataModel: [],
   schemaFeedback: null,
@@ -120,6 +201,9 @@ function loadSummary(topic: string): SummaryState {
     const schemaFeedback = Array.isArray(fb) ? (fb as SchemaFeedbackItem[]).filter((x) => x && typeof x.userLine === "string" && typeof x.reasonable === "boolean" && typeof x.comment === "string") : null;
     const estFb = parsed.estimationFeedback;
     const estimationFeedback = Array.isArray(estFb) ? (estFb as EstimationFeedbackItem[]).filter((x) => x && typeof x.userLine === "string" && typeof x.reasonable === "boolean" && typeof x.comment === "string") : null;
+    const estimationStructured = parseEstimationStructured(
+      parsed.estimationStructured
+    );
     const rawDeep = parsed.deepDives;
     let deepDives: SummaryState["deepDives"] = [];
     if (Array.isArray(rawDeep)) {
@@ -151,6 +235,7 @@ function loadSummary(topic: string): SummaryState {
       deepDives,
       estimation: Array.isArray(parsed.estimation) ? (parsed.estimation as string[]) : [],
       estimationFeedback: estimationFeedback?.length ? estimationFeedback : null,
+      estimationStructured,
       estimationMissed: Array.isArray(parsed.estimationMissed) ? (parsed.estimationMissed as string[]) : null,
       dataModel: Array.isArray(parsed.dataModel) ? (parsed.dataModel as string[]) : [],
       schemaFeedback: schemaFeedback?.length ? schemaFeedback : null,
@@ -172,7 +257,7 @@ function saveSummary(topic: string, state: SummaryState) {
 
 interface SummaryContextValue extends SummaryState {
   topic: string;
-  setRequirements: (req: RequirementsSummary) => void;
+  setRequirements: (req: RequirementsSummary | null) => void;
   setApiDesign: (rows: ApiDesignRow[]) => void;
   setDiagramXml: (xml: string | null) => void;
   setDiagramPng: (dataUrl: string | null) => void;
@@ -186,6 +271,7 @@ interface SummaryContextValue extends SummaryState {
   setDeepDives: (items: DeepDiveItem[]) => void;
   setEstimation: (items: string[]) => void;
   setEstimationFeedback: (feedback: EstimationFeedbackItem[] | null) => void;
+  setEstimationStructured: (structured: EstimationStructuredFeedback | null) => void;
   setEstimationMissed: (missed: string[] | null) => void;
   setDataModel: (items: string[]) => void;
   setSchemaFeedback: (feedback: SchemaFeedbackItem[] | null) => void;
@@ -212,7 +298,7 @@ export function SummaryProvider({
     saveSummary(topic, state);
   }, [topic, state]);
 
-  const setRequirements = useCallback((requirements: RequirementsSummary) => {
+  const setRequirements = useCallback((requirements: RequirementsSummary | null) => {
     setState((prev) => ({ ...prev, requirements }));
   }, []);
 
@@ -268,6 +354,13 @@ export function SummaryProvider({
     setState((prev) => ({ ...prev, estimationFeedback }));
   }, []);
 
+  const setEstimationStructured = useCallback(
+    (estimationStructured: EstimationStructuredFeedback | null) => {
+      setState((prev) => ({ ...prev, estimationStructured }));
+    },
+    []
+  );
+
   const setEstimationMissed = useCallback((estimationMissed: string[] | null) => {
     setState((prev) => ({ ...prev, estimationMissed }));
   }, []);
@@ -305,6 +398,7 @@ export function SummaryProvider({
     setDeepDives,
     setEstimation,
     setEstimationFeedback,
+    setEstimationStructured,
     setEstimationMissed,
     setDataModel,
     setSchemaFeedback,

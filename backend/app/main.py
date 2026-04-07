@@ -19,7 +19,7 @@ from app.llm import (
     call_llm_diagram_2,
     call_llm_estimation_1,
     call_llm_estimation_2,
-    call_llm_estimation_calculations,
+    call_llm_estimation_evaluation,
     call_llm_data_model_1,
     call_llm_data_model_2,
     call_llm_data_model_feedback,
@@ -29,7 +29,8 @@ from app.llm import (
     classify_requirements_coverage,
 )
 from app.schemas import (
-    CalculationFeedbackItem,
+    EstimationComparisonItem,
+    ExpectedEstimationItem,
     DataModelFeedbackItem,
     DeepDiveItemResponse,
     ValidateApisRequest,
@@ -153,14 +154,40 @@ async def validate_apis(req: ValidateApisRequest) -> ValidateApisResponse:
     )
 
 
+def _diagram_api_spec(api_design: list) -> str:
+    """Build API spec text for diagram-from-API prompt (list of endpoints + brief description)."""
+    if not api_design:
+        return ""
+    lines = []
+    for row in api_design[:30]:
+        if isinstance(row, dict):
+            api = str(row.get("api", "") or "").strip()
+            req = str(row.get("request", "") or "").strip()
+            res = str(row.get("response", "") or "").strip()
+        else:
+            api = str(getattr(row, "api", "") or "").strip()
+            req = str(getattr(row, "request", "") or "").strip()
+            res = str(getattr(row, "response", "") or "").strip()
+        if api:
+            parts = [api]
+            if req:
+                parts.append(f"request: {req[:80]}..." if len(req) > 80 else f"request: {req}")
+            if res:
+                parts.append(f"response: {res[:80]}..." if len(res) > 80 else f"response: {res}")
+            lines.append(" — ".join(parts))
+    return "\n".join(lines) if lines else ""
+
+
 @app.post("/validate-diagram", response_model=ValidateDiagramResponse)
 async def validate_diagram(req: ValidateDiagramRequest) -> ValidateDiagramResponse:
     """
     Call two LLMs for key components that should appear in a high-level diagram,
     merge lists, extract text from the user's draw.io XML, then compare by meaning.
+    When apiDesign is provided, the suggested diagram is generated from the API spec.
     """
+    api_spec = _diagram_api_spec(req.apiDesign or [])
     result1, elem2 = await asyncio.gather(
-        call_llm_diagram_1(req.topic),
+        call_llm_diagram_1(req.topic, api_spec=api_spec or None),
         call_llm_diagram_2(req.topic),
     )
     elem1 = result1["elements"]
@@ -297,7 +324,8 @@ async def validate_detailed_diagram(req: ValidateDetailedDiagramRequest) -> Vali
     """
     Validate the user's detailed design diagram against all discussed points: requirements,
     API design, database schema, high-level diagram, end-to-end flow, and deep dives.
-    Returns text feedback, improvements, and a suggested Mermaid diagram as reference.
+    Returns text feedback, improvements, and a suggested Mermaid diagram (same style as high-level),
+    plus an optional server-rendered PNG when rendering succeeds.
     """
     diagram_labels = extract_text_from_drawio_xml(req.diagramXml or "")
     high_level_labels = extract_text_from_drawio_xml(req.highLevelDiagramXml or "")
@@ -327,9 +355,9 @@ async def validate_detailed_diagram(req: ValidateDetailedDiagramRequest) -> Vali
     suggested_diagram = result.get("suggested_diagram", "") or ""
     suggested_diagram_png = ""
     if suggested_diagram.strip():
-        suggested_diagram_png = await d2_to_png_data_url(suggested_diagram)
+        suggested_diagram_png = await mermaid_to_png_data_url(suggested_diagram)
         if not suggested_diagram_png:
-            suggested_diagram_png = await mermaid_to_png_data_url(suggested_diagram)
+            suggested_diagram_png = await d2_to_png_data_url(suggested_diagram)
     return ValidateDetailedDiagramResponse(
         feedback=result.get("feedback", ""),
         improvements=result.get("improvements", ""),
@@ -341,9 +369,9 @@ async def validate_detailed_diagram(req: ValidateDetailedDiagramRequest) -> Vali
 @app.post("/validate-estimation", response_model=ValidateEstimationResponse)
 async def validate_estimation(req: ValidateEstimationRequest) -> ValidateEstimationResponse:
     """
-    Call two LLMs for key back-of-the-envelope estimation items for the topic,
-    merge lists, compare user's estimation items by meaning (matched/missed),
-    and run a second-step LLM to validate reasonableness of numbers/calculations per line.
+    Merge key estimation categories from two LLM passes, classify user coverage,
+    and run a strict evaluation pass: reference derivations, per-category comparison,
+    and missing important categories.
     """
     est1, est2 = await asyncio.gather(
         call_llm_estimation_1(req.topic),
@@ -354,19 +382,36 @@ async def validate_estimation(req: ValidateEstimationRequest) -> ValidateEstimat
         common if common else combine_top_requirements(est1, est2)
     )
     user_est = req.estimations or []
-    coverage, calculation_feedback = await asyncio.gather(
+    coverage, evaluation = await asyncio.gather(
         classify_requirements_coverage(final_elements, user_est),
-        call_llm_estimation_calculations(req.topic, user_est),
+        call_llm_estimation_evaluation(req.topic, user_est),
     )
-    feedback_models = [
-        CalculationFeedbackItem(userLine=item["userLine"], reasonable=item["reasonable"], comment=item["comment"])
-        for item in calculation_feedback
+    expected_models = [
+        ExpectedEstimationItem(
+            item=r["item"],
+            expectedValue=r["expected_value"],
+            derivation=r["derivation"],
+        )
+        for r in evaluation["expected_estimations"]
+    ]
+    comparison_models = [
+        EstimationComparisonItem(
+            item=r["item"],
+            userValue=r["user_value"],
+            expectedValue=r["expected_value"],
+            status=r["status"],
+            feedback=r["feedback"],
+        )
+        for r in evaluation["comparison_feedback"]
     ]
     return ValidateEstimationResponse(
         elements=final_elements,
         matched=coverage["matched"],
         missed=coverage["missed"],
-        calculationFeedback=feedback_models,
+        expectedEstimations=expected_models,
+        comparisonFeedback=comparison_models,
+        missingItems=evaluation["missing_items"],
+        overallFeedback=evaluation["overall_feedback"],
     )
 
 

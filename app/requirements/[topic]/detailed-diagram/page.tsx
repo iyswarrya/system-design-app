@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSummary } from "@/context/SummaryContext";
+import { MermaidDiagram } from "@/components/MermaidDiagram";
+import { resolveAppSession } from "@/lib/appSession";
+import { saveInterviewAttempt } from "@/lib/saveInterviewAttempt";
+import { notifySummaryItemsChanged, saveSummaryItem } from "@/lib/summaryItems";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const DIAGRAM_EMBED_ORIGIN = "https://embed.diagrams.net";
@@ -22,7 +26,13 @@ export default function DetailedDiagramPage() {
     apiDesign,
     dataModel,
     diagramXml: highLevelDiagramXml,
+    suggestedDiagramMermaid,
+    suggestedDetailedDiagramMermaid,
     endToEndFlow,
+    flowValidationFeedback,
+    estimationFeedback,
+    estimationStructured,
+    schemaFeedback,
     deepDives,
   } = useSummary();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -38,49 +48,14 @@ export default function DetailedDiagramPage() {
     suggestedDiagram: string;
     suggestedDiagramPng: string;
   } | null>(null);
-  const [generatedBlockDiagramPng, setGeneratedBlockDiagramPng] = useState<string>("");
-  const [generatedPngLoading, setGeneratedPngLoading] = useState(false);
+  const [suggestedSvg, setSuggestedSvg] = useState<string | null>(null);
+  const [saveSuggestedStatus, setSaveSuggestedStatus] = useState<
+    "" | "saved" | "duplicate" | "error"
+  >("");
   const validateTimeoutRef = useRef<number | null>(null);
 
-  const KROKI_URL = "https://kroki.io";
-
-  useEffect(() => {
-    if (!validationResults?.suggestedDiagram?.trim() || validationResults.suggestedDiagramPng) {
-      setGeneratedBlockDiagramPng("");
-      setGeneratedPngLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setGeneratedPngLoading(true);
-    setGeneratedBlockDiagramPng("");
-    fetch(`${KROKI_URL}/d2/png`, {
-      method: "POST",
-      body: validationResults.suggestedDiagram.trim(),
-      headers: { "Content-Type": "text/plain" },
-    })
-      .then((res) => {
-        if (cancelled || !res.ok) return null;
-        return res.blob();
-      })
-      .then((blob) => {
-        if (cancelled || !blob) return null;
-        return new Promise<string>((resolve) => {
-          const r = new FileReader();
-          r.onloadend = () => resolve(r.result as string);
-          r.readAsDataURL(blob);
-        });
-      })
-      .then((dataUrl) => {
-        if (!cancelled && dataUrl) setGeneratedBlockDiagramPng(dataUrl);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setGeneratedPngLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [validationResults?.suggestedDiagram, validationResults?.suggestedDiagramPng]);
+  const [attemptStatus, setAttemptStatus] = useState<"" | "saving" | "saved" | "error">("");
+  const [attemptError, setAttemptError] = useState<string | null>(null);
 
   const topicName = topic
     .split("-")
@@ -91,8 +66,8 @@ export default function DetailedDiagramPage() {
     (xml: string) => {
       setIsValidating(true);
       setValidationResults(null);
-      setGeneratedBlockDiagramPng("");
-      setGeneratedPngLoading(false);
+      setSuggestedSvg(null);
+      setSaveSuggestedStatus("");
       const deepDivesPayload = (deepDives ?? []).map((d) => ({
         topic: d.topic,
         userSummary: d.userSummary ?? "",
@@ -165,11 +140,12 @@ export default function DetailedDiagramPage() {
         const isExportPng =
           msg.event === "export" &&
           (msg.format === "png" || msg.format === "xmlpng") &&
-          exportForPngRef.current;
-        if (isExportPng && typeof msg.data === "string") {
+          exportForPngRef.current &&
+          typeof msg.data === "string";
+        if (isExportPng) {
           exportForPngRef.current = false;
           setIsExportingPng(false);
-          let dataUrl = msg.data;
+          const dataUrl = msg.data as string;
           if (dataUrl.startsWith("data:image")) {
             setDetailedDiagramPng(dataUrl);
             setSavedPng(true);
@@ -302,9 +278,120 @@ export default function DetailedDiagramPage() {
             >
               {isExportingPng ? "Exporting..." : "Save the user's diagram as PNG"}
             </button>
+            <button
+              type="button"
+              disabled={attemptStatus === "saving" || !validationResults}
+              onClick={async () => {
+                setAttemptStatus("saving");
+                setAttemptError(null);
+                try {
+                  const summaryKey = `summary_items_${topic}`;
+                  type SavedFeedbackDiagramSummary = {
+                    id: string;
+                    title: string;
+                    createdAt: string;
+                    mermaidText: string;
+                    svg: null;
+                  };
+                  let savedFeedbackDiagrams: SavedFeedbackDiagramSummary[] = [];
+                  try {
+                    const raw = window.sessionStorage.getItem(summaryKey);
+                    if (raw) {
+                      const parsed = JSON.parse(raw) as unknown;
+                      if (Array.isArray(parsed)) {
+                        savedFeedbackDiagrams = parsed
+                          .map((it) => {
+                            if (!it || typeof it !== "object") return null;
+                            const v = it as {
+                              id?: unknown;
+                              title?: unknown;
+                              createdAt?: unknown;
+                              mermaidText?: unknown;
+                            };
+                            if (typeof v.id !== "string") return null;
+                            return {
+                              id: v.id,
+                              title: typeof v.title === "string" ? v.title : "",
+                              createdAt:
+                                typeof v.createdAt === "string"
+                                  ? v.createdAt
+                                  : new Date().toISOString(),
+                              mermaidText:
+                                typeof v.mermaidText === "string" ? v.mermaidText : "",
+                              svg: null,
+                            };
+                          })
+                          .filter(
+                            (x): x is SavedFeedbackDiagramSummary => x !== null
+                          );
+                      }
+                    }
+                  } catch {
+                    // ignore parse errors
+                  }
+
+                  const llmSummary = {
+                    topic: topicName,
+                    validationFeedback: validationResults
+                      ? {
+                          feedback: validationResults.feedback,
+                          improvements: validationResults.improvements,
+                          suggestedDiagramMermaid: validationResults.suggestedDiagram,
+                        }
+                      : null,
+                    suggestedDiagrams: {
+                      highLevelMermaid: suggestedDiagramMermaid,
+                      detailedSuggestedMermaid: suggestedDetailedDiagramMermaid,
+                    },
+                    flowValidationFeedback: flowValidationFeedback
+                      ? {
+                          correct: flowValidationFeedback.correct,
+                          feedback: flowValidationFeedback.feedback,
+                          improvements: flowValidationFeedback.improvements,
+                        }
+                      : null,
+                    estimationFeedback: estimationFeedback ?? null,
+                    estimationStructured: estimationStructured ?? null,
+                    schemaFeedback: schemaFeedback ?? null,
+                    deepDives,
+                    savedFeedbackDiagrams,
+                  };
+
+                  const session = await resolveAppSession();
+                  const result = await saveInterviewAttempt(
+                    {
+                      topicName: topicName,
+                      summary: JSON.stringify(llmSummary),
+                    },
+                    session
+                  );
+
+                  if (!result.ok) {
+                    throw new Error(result.error || "Failed to save attempt.");
+                  }
+
+                  setAttemptStatus("saved");
+                } catch (err) {
+                  setAttemptStatus("error");
+                  setAttemptError(err instanceof Error ? err.message : "Failed to save attempt.");
+                }
+              }}
+              className="rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-400 to-pink-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+            >
+              {attemptStatus === "saving"
+                ? "Saving..."
+                : attemptStatus === "saved"
+                  ? "Saved"
+                  : "Finish & Save attempt"}
+            </button>
             {savedPng && (
               <span className="text-sm font-medium text-green-600 dark:text-green-400">
                 Saved
+              </span>
+            )}
+            {attemptStatus === "error" && (
+              <span className="text-sm font-medium text-red-600 dark:text-red-400">
+                {attemptError ?? "Could not save attempt."}
               </span>
             )}
             <Link
@@ -337,59 +424,106 @@ export default function DetailedDiagramPage() {
                 )}
               </div>
             )}
-            {(validationResults.suggestedDiagramPng || generatedBlockDiagramPng || validationResults.suggestedDiagram) && (
-              <>
-                <div>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Suggested detailed diagram (system-design block diagram)</p>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">The LLM suggests a block diagram (D2, rendered as PNG) that aligns with everything discussed.</p>
-                  {(validationResults.suggestedDiagramPng || generatedBlockDiagramPng) ? (
-                    <div className="mt-3 overflow-hidden rounded-xl border-2 border-amber-200 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-900/20">
-                      <img
-                        src={validationResults.suggestedDiagramPng || generatedBlockDiagramPng}
-                        alt="Suggested block diagram"
-                        className="max-h-96 w-full object-contain"
-                      />
-                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const src = validationResults.suggestedDiagramPng || generatedBlockDiagramPng;
-                            const a = document.createElement("a");
-                            a.href = src;
-                            a.download = "suggested-block-diagram.png";
-                            a.click();
-                          }}
-                          className="font-medium text-teal-600 hover:underline dark:text-teal-400"
-                        >
-                          Download image
-                        </button>
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-xs text-gray-800 dark:border-amber-800 dark:bg-amber-900/10 dark:text-gray-200">
-                        <code>{validationResults.suggestedDiagram}</code>
-                      </pre>
-                      {generatedPngLoading && (
-                        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">Generating image from D2…</p>
-                      )}
-                    </>
+            {validationResults.suggestedDiagram?.trim() && (
+              <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/20 p-6 dark:border-amber-800 dark:bg-amber-950/20">
+                <h3 className="mb-4 text-lg font-bold text-amber-900 dark:text-amber-200">
+                  Suggested detailed diagram (from LLM)
+                </h3>
+                <p className="mb-4 text-xs text-gray-600 dark:text-gray-400">
+                  Mermaid reference aligned with your requirements, APIs, schema, high-level diagram, flow, and deep dives — same format as the suggested high-level diagram.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <MermaidDiagram
+                      code={validationResults.suggestedDiagram}
+                      onRendered={(svg) => setSuggestedSvg(svg || null)}
+                    />
+                  </div>
+                  <pre className="max-h-64 overflow-auto rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-xs text-gray-800 dark:border-amber-800 dark:bg-amber-900/10 dark:text-gray-200">
+                    <code>{validationResults.suggestedDiagram}</code>
+                  </pre>
+                </div>
+                {validationResults.suggestedDiagramPng?.startsWith("data:image") && (
+                  <div className="mt-4 overflow-hidden rounded-xl border border-amber-200/80 bg-white/60 p-3 dark:border-amber-800 dark:bg-gray-900/40">
+                    <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Server-rendered PNG (optional)
+                    </p>
+                    <img
+                      src={validationResults.suggestedDiagramPng}
+                      alt="Suggested diagram PNG"
+                      className="max-h-48 w-full object-contain"
+                    />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const a = document.createElement("a");
+                          a.href = validationResults.suggestedDiagramPng;
+                          a.download = "suggested-detailed-diagram.png";
+                          a.click();
+                        }}
+                        className="font-medium text-teal-600 hover:underline dark:text-teal-400"
+                      >
+                        Download PNG
+                      </button>
+                    </p>
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const mermaidText = validationResults.suggestedDiagram;
+                        setSuggestedDetailedDiagramMermaid(mermaidText);
+                        const png = validationResults.suggestedDiagramPng;
+                        if (png?.startsWith("data:image")) {
+                          setSuggestedDetailedDiagramPng(png);
+                        } else {
+                          setSuggestedDetailedDiagramPng(null);
+                        }
+                        const id =
+                          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                            ? crypto.randomUUID()
+                            : `id-${Math.random().toString(36).slice(2)}`;
+                        const item = {
+                          id,
+                          type: "diagram-feedback" as const,
+                          topic,
+                          title: "Detailed diagram feedback",
+                          createdAt: new Date().toISOString(),
+                          mermaidText,
+                          svg: suggestedSvg ?? null,
+                        };
+                        const { added } = saveSummaryItem(topic, item);
+                        notifySummaryItemsChanged(topic);
+                        setSaveSuggestedStatus(added ? "saved" : "duplicate");
+                      } catch (e) {
+                        console.error("Failed to save suggested diagram to summary", e);
+                        setSaveSuggestedStatus("error");
+                      }
+                    }}
+                    className="rounded-xl border-2 border-amber-500 bg-amber-100 px-4 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-800/30"
+                  >
+                    Save Suggested diagram to Summary
+                  </button>
+                  {saveSuggestedStatus === "saved" && (
+                    <span className="text-xs font-medium text-green-700 dark:text-green-400">
+                      Saved to summary
+                    </span>
+                  )}
+                  {saveSuggestedStatus === "duplicate" && (
+                    <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                      Already saved
+                    </span>
+                  )}
+                  {saveSuggestedStatus === "error" && (
+                    <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                      Could not save. Try again.
+                    </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const png = validationResults.suggestedDiagramPng || generatedBlockDiagramPng;
-                    if (png) setSuggestedDetailedDiagramPng(png);
-                    if (validationResults.suggestedDiagram) {
-                      setSuggestedDetailedDiagramMermaid(validationResults.suggestedDiagram);
-                    }
-                  }}
-                  className="rounded-xl border-2 border-amber-500 bg-amber-100 px-4 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-800/30"
-                >
-                  Save suggested feedback and diagram to summary
-                </button>
-              </>
+              </div>
             )}
           </div>
         )}

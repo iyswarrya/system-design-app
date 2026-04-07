@@ -11,7 +11,12 @@ const API_BASE =
 export default function BackOfEnvelopePage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { setEstimation, setEstimationFeedback, setEstimationMissed } = useSummary();
+  const {
+    setEstimation,
+    setEstimationFeedback,
+    setEstimationStructured,
+    setEstimationMissed,
+  } = useSummary();
   const [estimationLines, setEstimationLines] = useState<string>("");
   const [savedUser, setSavedUser] = useState(false);
   const [savedSuggested, setSavedSuggested] = useState(false);
@@ -20,7 +25,20 @@ export default function BackOfEnvelopePage() {
     elements: string[];
     matched: string[];
     missed: string[];
-    calculationFeedback: { userLine: string; reasonable: boolean; comment: string }[];
+    expectedEstimations: {
+      item: string;
+      expectedValue: string;
+      derivation: string;
+    }[];
+    comparisonFeedback: {
+      item: string;
+      userValue: string;
+      expectedValue: string;
+      status: string;
+      feedback: string;
+    }[];
+    missingItems: string[];
+    overallFeedback: string;
   } | null>(null);
 
   const topicName = topic
@@ -36,6 +54,7 @@ export default function BackOfEnvelopePage() {
   const handleSaveUserSummary = () => {
     setEstimation(userEstimations);
     setEstimationFeedback(null);
+    setEstimationStructured(null);
     setEstimationMissed(null);
     setSavedUser(true);
     setSavedSuggested(false);
@@ -44,17 +63,45 @@ export default function BackOfEnvelopePage() {
   const handleSaveSuggestedSummary = () => {
     if (!validationResults?.elements?.length) return;
     setEstimation(validationResults.elements);
-    setEstimationFeedback(
-      (validationResults.calculationFeedback ?? []).length > 0
-        ? validationResults.calculationFeedback.map((fb) => ({
-            userLine: fb.userLine,
-            reasonable: fb.reasonable,
-            comment: fb.comment,
-          }))
-        : null
-    );
+    setEstimationFeedback(null);
+    const exp = validationResults.expectedEstimations ?? [];
+    const comp = validationResults.comparisonFeedback ?? [];
+    const miss = validationResults.missingItems ?? [];
+    const overall = validationResults.overallFeedback ?? "";
+    if (exp.length || comp.length || miss.length || overall.trim()) {
+      const normStatus = (s: string) => {
+        const t = s.toLowerCase();
+        return t === "correct" || t === "close" || t === "incorrect" || t === "missing"
+          ? t
+          : "incorrect";
+      };
+      setEstimationStructured({
+        expectedEstimations: exp.map((r) => ({
+          item: r.item,
+          expectedValue: r.expectedValue,
+          derivation: r.derivation,
+        })),
+        comparisonFeedback: comp.map((r) => ({
+          item: r.item,
+          userValue: r.userValue,
+          expectedValue: r.expectedValue,
+          status: normStatus(r.status) as
+            | "correct"
+            | "close"
+            | "incorrect"
+            | "missing",
+          feedback: r.feedback,
+        })),
+        missingItems: miss,
+        overallFeedback: overall,
+      });
+    } else {
+      setEstimationStructured(null);
+    }
+    const missedForChecklist =
+      miss.length > 0 ? miss : validationResults.missed ?? [];
     setEstimationMissed(
-      (validationResults.missed ?? []).length > 0 ? validationResults.missed : null
+      missedForChecklist.length > 0 ? missedForChecklist : null
     );
     setSavedSuggested(true);
     setSavedUser(false);
@@ -77,7 +124,10 @@ export default function BackOfEnvelopePage() {
         elements: data.elements ?? [],
         matched: data.matched ?? [],
         missed: data.missed ?? [],
-        calculationFeedback: data.calculationFeedback ?? [],
+        expectedEstimations: data.expectedEstimations ?? [],
+        comparisonFeedback: data.comparisonFeedback ?? [],
+        missingItems: data.missingItems ?? [],
+        overallFeedback: data.overallFeedback ?? "",
       });
     } catch (err) {
       console.error(err);
@@ -177,22 +227,70 @@ export default function BackOfEnvelopePage() {
             <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
               Estimation validation results
             </h2>
-            {(validationResults.calculationFeedback.length > 0 || validationResults.missed.length > 0) && (
-              <div className="rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-300/10 to-cyan-500/10 p-6 dark:from-emerald-500/20 dark:via-teal-300/20 dark:to-cyan-500/20">
-                <h3 className="mb-4 text-xl font-semibold text-emerald-800 dark:text-emerald-300">
-                  Calculation feedback
+
+            {validationResults.matched.length > 0 && (
+              <div className="rounded-lg border border-purple-200/80 bg-white/60 p-4 dark:border-purple-800 dark:bg-gray-900/40">
+                <p className="text-sm font-semibold text-purple-800 dark:text-purple-300">
+                  Checklist items you addressed
+                </p>
+                <ul className="mt-2 space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                  {validationResults.matched.map((item, idx) => (
+                    <li key={idx} className="list-disc">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {validationResults.expectedEstimations.length > 0 && (
+              <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/40 p-6 dark:border-indigo-800 dark:bg-indigo-950/30">
+                <h3 className="mb-2 text-xl font-semibold text-indigo-900 dark:text-indigo-200">
+                  Reference estimates (expected)
                 </h3>
                 <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-                  Review of your numbers and derivations (per line).
-                  {validationResults.missed.length > 0 && " Items you didn’t cover are listed below so you can add estimates for them."}
+                  Independent derivations with assumptions — compare to your numbers below.
                 </p>
-                {validationResults.missed.length > 0 && (
+                <ul className="space-y-4">
+                  {validationResults.expectedEstimations.map((row, idx) => (
+                    <li
+                      key={idx}
+                      className="rounded-lg border border-indigo-200/80 bg-white/80 p-4 dark:border-indigo-800 dark:bg-gray-900/50"
+                    >
+                      <p className="font-semibold text-gray-900 dark:text-gray-100">
+                        {row.item}
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                        {row.expectedValue}
+                      </p>
+                      <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                        {row.derivation}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {(validationResults.comparisonFeedback.length > 0 ||
+              validationResults.missingItems.length > 0 ||
+              validationResults.overallFeedback.trim()) && (
+              <div className="rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-300/10 to-cyan-500/10 p-6 dark:from-emerald-500/20 dark:via-teal-300/20 dark:to-cyan-500/20">
+                <h3 className="mb-4 text-xl font-semibold text-emerald-800 dark:text-emerald-300">
+                  Comparison & feedback
+                </h3>
+                {validationResults.overallFeedback.trim() && (
+                  <p className="mb-4 rounded-lg border border-emerald-200/80 bg-white/60 p-3 text-sm text-gray-700 dark:border-emerald-800 dark:bg-gray-900/40 dark:text-gray-300">
+                    {validationResults.overallFeedback}
+                  </p>
+                )}
+                {validationResults.missingItems.length > 0 && (
                   <div className="mb-6 rounded-lg border-2 border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
                     <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                      Items you didn’t cover ({validationResults.missed.length})
+                      Items you didn’t cover ({validationResults.missingItems.length})
                     </p>
                     <ul className="mt-2 space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
-                      {validationResults.missed.map((item, idx) => (
+                      {validationResults.missingItems.map((item, idx) => (
                         <li key={idx} className="list-disc">
                           {item}
                         </li>
@@ -200,40 +298,74 @@ export default function BackOfEnvelopePage() {
                     </ul>
                   </div>
                 )}
-                {validationResults.calculationFeedback.length > 0 && (
-                <ul className="space-y-4">
-                  {validationResults.calculationFeedback.map((fb, idx) => (
-                    <li
-                      key={idx}
-                      className={`rounded-lg border-2 p-4 ${
-                        fb.reasonable
+                {validationResults.comparisonFeedback.length > 0 && (
+                  <ul className="space-y-4">
+                    {validationResults.comparisonFeedback.map((fb, idx) => {
+                      const st = fb.status.toLowerCase();
+                      const border =
+                        st === "correct"
                           ? "border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-900/20"
-                          : "border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-900/20"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <span
-                          className="mt-0.5 shrink-0 text-lg"
-                          title={fb.reasonable ? "Reasonable" : "Review suggested"}
-                          aria-hidden
-                        >
-                          {fb.reasonable ? "✓" : "⚠"}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-800 dark:text-gray-200">
-                            {fb.userLine}
+                          : st === "close"
+                            ? "border-cyan-200 bg-cyan-50/40 dark:border-cyan-800 dark:bg-cyan-900/20"
+                            : st === "missing"
+                              ? "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-900/30"
+                              : "border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-900/20";
+                      const label =
+                        st === "correct"
+                          ? "Correct"
+                          : st === "close"
+                            ? "Close"
+                            : st === "missing"
+                              ? "Missing"
+                              : "Incorrect";
+                      return (
+                        <li key={idx} className={`rounded-lg border-2 p-4 ${border}`}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              {fb.item}
+                            </span>
+                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                              {label}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                            <span className="font-medium text-gray-600 dark:text-gray-400">
+                              Yours:{" "}
+                            </span>
+                            {fb.userValue?.trim() || "—"}
                           </p>
-                          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                            {fb.comment}
+                          <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                            <span className="font-medium text-gray-600 dark:text-gray-400">
+                              Expected:{" "}
+                            </span>
+                            {fb.expectedValue}
                           </p>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                            {fb.feedback}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
               </div>
             )}
+
+            {validationResults.missed.length > 0 &&
+              validationResults.missingItems.length === 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    Suggested checklist gaps
+                  </p>
+                  <ul className="mt-2 space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                    {validationResults.missed.map((item, idx) => (
+                      <li key={idx} className="list-disc">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
           </div>
         )}
       </main>

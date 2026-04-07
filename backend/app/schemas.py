@@ -1,6 +1,6 @@
 """Pydantic models for API request/response. Field aliases match frontend JSON keys."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ValidateRequest(BaseModel):
@@ -90,6 +90,11 @@ class ValidateDiagramRequest(BaseModel):
         default="",
         alias="diagramXml",
         description="Draw.io diagram XML (to extract text labels for comparison)",
+    )
+    apiDesign: list[dict] = Field(
+        default_factory=list,
+        alias="apiDesign",
+        description="List of API specs (api, request, response) used to generate the suggested diagram",
     )
 
     model_config = {"populate_by_name": True}
@@ -335,18 +340,58 @@ class ValidateEstimationRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class CalculationFeedbackItem(BaseModel):
-    """Per-line feedback on whether the user's numbers/derivations are reasonable."""
+class ExpectedEstimationItem(BaseModel):
+    """Reference back-of-the-envelope estimate with explicit derivation."""
 
-    userLine: str = Field(..., alias="userLine", description="Exact user estimation line")
-    reasonable: bool = Field(..., description="True if numbers and derivation are sensible")
-    comment: str = Field(default="", description="Brief explanation from LLM")
+    item: str = Field(..., description="Metric or category label (e.g. DAU, peak QPS)")
+    expectedValue: str = Field(
+        ...,
+        alias="expectedValue",
+        description="Numeric answer with units / order of magnitude",
+    )
+    derivation: str = Field(
+        ...,
+        description="Step-by-step reasoning, assumptions, and intermediate math",
+    )
 
     model_config = {"populate_by_name": True}
 
 
+class EstimationComparisonItem(BaseModel):
+    """Compares one category to the user's submission."""
+
+    item: str = Field(..., description="Category being compared")
+    userValue: str = Field(
+        default="",
+        alias="userValue",
+        description="What the user stated for this category, or empty if missing",
+    )
+    expectedValue: str = Field(
+        ...,
+        alias="expectedValue",
+        description="Your derived benchmark for this category",
+    )
+    status: str = Field(
+        ...,
+        description="One of: correct, close, incorrect, missing",
+    )
+    feedback: str = Field(
+        ...,
+        description="Concise: what matches, or wrong assumption / formula / arithmetic / units",
+    )
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("status")
+    @classmethod
+    def normalize_status(cls, v: str) -> str:
+        s = (v or "").strip().lower()
+        allowed = frozenset({"correct", "close", "incorrect", "missing"})
+        return s if s in allowed else "incorrect"
+
+
 class ValidateEstimationResponse(BaseModel):
-    """Response body for POST /validate-estimation. Expected items + matched / missed + calculation feedback."""
+    """Response body for POST /validate-estimation: checklist + reference estimates + comparison."""
 
     elements: list[str] = Field(
         ...,
@@ -360,10 +405,25 @@ class ValidateEstimationResponse(BaseModel):
         default_factory=list,
         description="Expected items that the user did not include",
     )
-    calculationFeedback: list[CalculationFeedbackItem] = Field(
+    expectedEstimations: list[ExpectedEstimationItem] = Field(
         default_factory=list,
-        alias="calculationFeedback",
-        description="Per-line feedback on reasonableness of numbers and calculations",
+        alias="expectedEstimations",
+        description="Independently derived reference values with derivations",
+    )
+    comparisonFeedback: list[EstimationComparisonItem] = Field(
+        default_factory=list,
+        alias="comparisonFeedback",
+        description="Per-category comparison vs user input",
+    )
+    missingItems: list[str] = Field(
+        default_factory=list,
+        alias="missingItems",
+        description="Important estimation categories the user did not cover",
+    )
+    overallFeedback: str = Field(
+        default="",
+        alias="overallFeedback",
+        description="Short summary of estimate quality and top gaps",
     )
 
     model_config = {"populate_by_name": True}

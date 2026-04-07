@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSummary } from "@/context/SummaryContext";
+import { MermaidDiagram } from "@/components/MermaidDiagram";
+import { notifySummaryItemsChanged, saveSummaryItem } from "@/lib/summaryItems";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const DIAGRAM_EMBED_ORIGIN = "https://embed.diagrams.net";
@@ -12,7 +14,7 @@ const API_BASE =
 export default function HighLevelDiagramPage() {
   const params = useParams();
   const topic = params.topic as string;
-  const { diagramXml, setDiagramXml, setDiagramPng, setSuggestedDiagramMermaid } = useSummary();
+  const { diagramXml, setDiagramXml, setDiagramPng, setSuggestedDiagramMermaid, apiDesign } = useSummary();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [saved, setSaved] = useState(false);
   const [ready, setReady] = useState(false);
@@ -20,6 +22,8 @@ export default function HighLevelDiagramPage() {
   const exportForPngRef = useRef(false);
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [suggestedSvg, setSuggestedSvg] = useState<string | null>(null);
+  const [saveSuggestedStatus, setSaveSuggestedStatus] = useState<"" | "saved" | "duplicate" | "error">("");
   const [validationResults, setValidationResults] = useState<{
     elements: string[];
     matched: string[];
@@ -37,12 +41,18 @@ export default function HighLevelDiagramPage() {
     (xml: string) => {
       setIsValidating(true);
       setValidationResults(null);
+      const apiDesignPayload = (apiDesign ?? []).map((row) => ({
+        api: row.api,
+        request: row.request ?? "",
+        response: row.response ?? "",
+      }));
       fetch(`${API_BASE}/validate-diagram`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: topicName,
           diagramXml: xml,
+          apiDesign: apiDesignPayload,
         }),
       })
         .then((res) => {
@@ -63,7 +73,7 @@ export default function HighLevelDiagramPage() {
         })
         .finally(() => setIsValidating(false));
     },
-    [topicName]
+    [topicName, apiDesign]
   );
 
   const sendLoad = useCallback(
@@ -250,18 +260,65 @@ export default function HighLevelDiagramPage() {
             <h2 className="mb-4 text-xl font-bold bg-gradient-to-r from-indigo-600 via-purple-400 to-pink-600 bg-clip-text text-transparent dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400">
               Suggested high-level diagram (from LLM)
             </h2>
-            <pre className="max-h-64 overflow-auto rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-xs text-gray-800 dark:border-amber-800 dark:bg-amber-900/10 dark:text-gray-200">
-              <code>{validationResults.suggestedDiagram}</code>
-            </pre>
-            <button
-              type="button"
-              onClick={() => {
-                setSuggestedDiagramMermaid(validationResults.suggestedDiagram);
-              }}
-              className="mt-4 rounded-xl border-2 border-amber-500 bg-amber-100 px-4 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-800/30"
-            >
-              Add suggested diagram to summary
-            </button>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <MermaidDiagram
+                  code={validationResults.suggestedDiagram}
+                  onRendered={(svg) => setSuggestedSvg(svg || null)}
+                />
+              </div>
+              <pre className="max-h-64 overflow-auto rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-xs text-gray-800 dark:border-amber-800 dark:bg-amber-900/10 dark:text-gray-200">
+                <code>{validationResults.suggestedDiagram}</code>
+              </pre>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const mermaidText = validationResults.suggestedDiagram;
+                    setSuggestedDiagramMermaid(mermaidText);
+                    const id =
+                      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                        ? crypto.randomUUID()
+                        : `id-${Math.random().toString(36).slice(2)}`;
+                    const item = {
+                      id,
+                      type: "diagram-feedback" as const,
+                      topic,
+                      title: "High-level diagram feedback",
+                      createdAt: new Date().toISOString(),
+                      mermaidText,
+                      svg: suggestedSvg ?? null,
+                    };
+                    const { added } = saveSummaryItem(topic, item);
+                    notifySummaryItemsChanged(topic);
+                    setSaveSuggestedStatus(added ? "saved" : "duplicate");
+                  } catch (e) {
+                    console.error("Failed to save suggested diagram to summary", e);
+                    setSaveSuggestedStatus("error");
+                  }
+                }}
+                className="rounded-xl border-2 border-amber-500 bg-amber-100 px-4 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-800/30"
+              >
+                Save Suggested diagram to Summary
+              </button>
+              {saveSuggestedStatus === "saved" && (
+                <span className="text-xs font-medium text-green-700 dark:text-green-400">
+                  Saved to summary
+                </span>
+              )}
+              {saveSuggestedStatus === "duplicate" && (
+                <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  Already saved
+                </span>
+              )}
+              {saveSuggestedStatus === "error" && (
+                <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                  Could not save. Try again.
+                </span>
+              )}
+            </div>
           </div>
         )}
 

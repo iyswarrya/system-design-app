@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSummary } from "@/context/SummaryContext";
+import { useSummaryItems } from "@/hooks/useSummaryItems";
 
 export default function SummaryPane() {
   const params = useParams();
   const topic = params.topic as string;
-  const { requirements, apiDesign, diagramXml, diagramPng, suggestedDiagramMermaid, detailedDiagramXml, suggestedDetailedDiagramMermaid, suggestedDetailedDiagramPng, detailedDiagramPng, endToEndFlow, flowValidationFeedback, deepDives, estimation, estimationFeedback, estimationMissed, dataModel, schemaFeedback, schemaMissed, clearSummary } = useSummary();
+  const { requirements, apiDesign, diagramXml, diagramPng, suggestedDiagramMermaid, detailedDiagramXml, suggestedDetailedDiagramMermaid, suggestedDetailedDiagramPng, detailedDiagramPng, endToEndFlow, flowValidationFeedback, deepDives, estimation, estimationFeedback, estimationStructured, estimationMissed, dataModel, schemaFeedback, schemaMissed, clearSummary, setRequirements, setApiDesign, setDiagramXml, setDiagramPng, setSuggestedDiagramMermaid, setDetailedDiagramXml, setSuggestedDetailedDiagramMermaid, setSuggestedDetailedDiagramPng, setDetailedDiagramPng, setEndToEndFlow, setFlowValidationFeedback, setDeepDives, setEstimation, setEstimationFeedback, setEstimationStructured, setEstimationMissed, setDataModel, setSchemaFeedback, setSchemaMissed } = useSummary();
+  const { items: summaryItems, removeItemById } = useSummaryItems(topic);
   const hasAny =
     requirements ||
     (apiDesign && apiDesign.length > 0) ||
@@ -23,10 +25,16 @@ export default function SummaryPane() {
     (deepDives && deepDives.length > 0) ||
     (estimation && estimation.length > 0) ||
     (estimationFeedback && estimationFeedback.length > 0) ||
+    (estimationStructured &&
+      (estimationStructured.expectedEstimations.length > 0 ||
+        estimationStructured.comparisonFeedback.length > 0 ||
+        estimationStructured.missingItems.length > 0 ||
+        estimationStructured.overallFeedback.trim())) ||
     (estimationMissed && estimationMissed.length > 0) ||
     (dataModel && dataModel.length > 0) ||
     (schemaFeedback && schemaFeedback.length > 0) ||
-    (schemaMissed && schemaMissed.length > 0);
+    (schemaMissed && schemaMissed.length > 0) ||
+    (summaryItems && summaryItems.length > 0);
 
   if (!hasAny) {
     return (
@@ -49,9 +57,16 @@ export default function SummaryPane() {
 
       {requirements && (
         <section className="mt-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
-            Requirements
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+              Requirements
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}`} className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => window.confirm("Remove Requirements from summary?") && setRequirements(null)} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           <div className="mt-1.5 space-y-2">
             <div>
               <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -83,9 +98,16 @@ export default function SummaryPane() {
 
       {apiDesign && apiDesign.length > 0 && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-pink-600 dark:text-pink-400">
-            API design
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-pink-600 dark:text-pink-400">
+              API design
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/api-design`} className="font-medium text-pink-600 hover:underline dark:text-pink-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => window.confirm("Remove API design from summary?") && setApiDesign([])} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           <ul className="mt-1.5 space-y-1 pl-3 text-xs text-gray-700 dark:text-gray-300">
             {apiDesign.map((row, i) => (
               <li key={i} className="list-disc">
@@ -105,9 +127,16 @@ export default function SummaryPane() {
 
       {(diagramXml?.length > 0 || diagramPng?.length > 0) && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
-            High-level diagram
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
+              High-level diagram
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/high-level-diagram`} className="font-medium text-teal-600 hover:underline dark:text-teal-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove High-level diagram from summary?")) { setDiagramXml(null); setDiagramPng(null); setSuggestedDiagramMermaid(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {diagramPng && diagramPng.startsWith("data:image") && (
             <div className="mt-1.5">
               <img
@@ -131,20 +160,41 @@ export default function SummaryPane() {
 
       {suggestedDiagramMermaid && suggestedDiagramMermaid.length > 0 && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-            LLM suggested diagram
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              LLM suggested diagram
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/high-level-diagram`} className="font-medium text-amber-600 hover:underline dark:text-amber-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => window.confirm("Remove LLM suggested diagram from summary?") && setSuggestedDiagramMermaid(null)} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
             Mermaid reference saved.
           </p>
         </section>
       )}
 
-      {(estimation && estimation.length > 0) || (estimationFeedback && estimationFeedback.length > 0) || (estimationMissed && estimationMissed.length > 0) ? (
+      {(estimation && estimation.length > 0) ||
+      (estimationFeedback && estimationFeedback.length > 0) ||
+      (estimationStructured &&
+        (estimationStructured.expectedEstimations.length > 0 ||
+          estimationStructured.comparisonFeedback.length > 0 ||
+          estimationStructured.missingItems.length > 0 ||
+          estimationStructured.overallFeedback.trim())) ||
+      (estimationMissed && estimationMissed.length > 0) ? (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-            Back of envelope
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              Back of envelope
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/back-of-envelope`} className="font-medium text-emerald-600 hover:underline dark:text-emerald-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove Back of envelope from summary?")) { setEstimation([]); setEstimationFeedback(null); setEstimationStructured(null); setEstimationMissed(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {estimation && estimation.length > 0 && (
             <ul className="mt-1.5 space-y-0.5 pl-3 text-xs text-gray-700 dark:text-gray-300">
               {estimation.map((item, i) => (
@@ -162,6 +212,48 @@ export default function SummaryPane() {
                   <li key={i} className="list-disc">{item}</li>
                 ))}
               </ul>
+            </div>
+          )}
+          {estimationStructured &&
+            (estimationStructured.expectedEstimations.length > 0 ||
+              estimationStructured.comparisonFeedback.length > 0 ||
+              estimationStructured.missingItems.length > 0 ||
+              estimationStructured.overallFeedback.trim()) && (
+            <div className="mt-2 space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/40 p-2 dark:border-indigo-800 dark:bg-indigo-950/30">
+              {estimationStructured.overallFeedback.trim() && (
+                <p className="text-xs text-gray-700 dark:text-gray-300">
+                  <span className="font-medium text-indigo-800 dark:text-indigo-300">Overall: </span>
+                  {estimationStructured.overallFeedback}
+                </p>
+              )}
+              {estimationStructured.expectedEstimations.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-indigo-800 dark:text-indigo-300">Reference</p>
+                  <ul className="mt-0.5 space-y-1 pl-3 text-xs text-gray-700 dark:text-gray-300">
+                    {estimationStructured.expectedEstimations.map((row, i) => (
+                      <li key={i} className="list-disc">
+                        <span className="font-medium">{row.item}: </span>
+                        {row.expectedValue}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {estimationStructured.comparisonFeedback.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">Comparison</p>
+                  <ul className="mt-0.5 space-y-1 pl-3 text-xs text-gray-700 dark:text-gray-300">
+                    {estimationStructured.comparisonFeedback.map((fb, i) => (
+                      <li key={i} className="list-disc">
+                        <span className="font-medium">{fb.item}</span>
+                        <span className="text-gray-500 dark:text-gray-400"> ({fb.status})</span>
+                        {" — "}
+                        {fb.feedback}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
           {estimationFeedback && estimationFeedback.length > 0 && (
@@ -188,9 +280,16 @@ export default function SummaryPane() {
 
       {(dataModel && dataModel.length > 0) || (schemaFeedback && schemaFeedback.length > 0) || (schemaMissed && schemaMissed.length > 0) ? (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
-            Database schema
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+              Database schema
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/data-model`} className="font-medium text-violet-600 hover:underline dark:text-violet-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove Database schema from summary?")) { setDataModel([]); setSchemaFeedback(null); setSchemaMissed(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {dataModel && dataModel.length > 0 && (
             <ul className="mt-1.5 space-y-0.5 pl-3 text-xs text-gray-700 dark:text-gray-300">
               {dataModel.map((item, i) => (
@@ -234,9 +333,16 @@ export default function SummaryPane() {
 
       {(endToEndFlow && endToEndFlow.trim().length > 0) || flowValidationFeedback ? (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
-            End-to-end flow
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-cyan-600 dark:text-cyan-400">
+              End-to-end flow
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/end-to-end-flow`} className="font-medium text-cyan-600 hover:underline dark:text-cyan-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove End-to-end flow from summary?")) { setEndToEndFlow(null); setFlowValidationFeedback(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {endToEndFlow && endToEndFlow.trim().length > 0 && (
             <p className="mt-1 line-clamp-3 text-xs text-gray-600 dark:text-gray-400">
               {endToEndFlow.trim()}
@@ -268,9 +374,16 @@ export default function SummaryPane() {
 
       {deepDives && deepDives.length > 0 && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
-            Deep dives
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
+              Deep dives
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/deep-dives`} className="font-medium text-sky-600 hover:underline dark:text-sky-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => window.confirm("Remove Deep dives from summary?") && setDeepDives([])} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           <ul className="mt-1.5 space-y-1 pl-3 text-xs text-gray-700 dark:text-gray-300">
             {deepDives.map((d, i) => (
               <li key={i} className="list-disc">
@@ -294,9 +407,16 @@ export default function SummaryPane() {
 
       {(detailedDiagramXml?.length > 0 || detailedDiagramPng?.length > 0) && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
-            Detailed design diagram
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-600 dark:text-teal-400">
+              Detailed design diagram
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/detailed-diagram`} className="font-medium text-teal-600 hover:underline dark:text-teal-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove Detailed design diagram from summary?")) { setDetailedDiagramXml(null); setDetailedDiagramPng(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {detailedDiagramPng && detailedDiagramPng.startsWith("data:image") && (
             <div className="mt-1.5">
               <img
@@ -320,9 +440,16 @@ export default function SummaryPane() {
 
       {(suggestedDetailedDiagramPng?.length > 0 || suggestedDetailedDiagramMermaid?.length > 0) && (
         <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-            LLM suggested detailed diagram
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              LLM suggested detailed diagram
+            </h3>
+            <span className="flex shrink-0 gap-1 text-xs">
+              <Link href={`/requirements/${topic}/detailed-diagram`} className="font-medium text-amber-600 hover:underline dark:text-amber-400">Edit</Link>
+              <span className="text-gray-400 dark:text-gray-500">|</span>
+              <button type="button" onClick={() => { if (window.confirm("Remove LLM suggested detailed diagram from summary?")) { setSuggestedDetailedDiagramMermaid(null); setSuggestedDetailedDiagramPng(null); } }} className="font-medium text-red-600 hover:underline dark:text-red-400">Delete</button>
+            </span>
+          </div>
           {suggestedDetailedDiagramPng && suggestedDetailedDiagramPng.startsWith("data:image") && (
             <img
               src={suggestedDetailedDiagramPng}
@@ -335,6 +462,49 @@ export default function SummaryPane() {
               Mermaid reference saved.
             </p>
           )}
+        </section>
+      )}
+
+      {summaryItems && summaryItems.length > 0 && (
+        <section className="mt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-fuchsia-600 dark:text-fuchsia-400">
+            Saved feedback diagrams
+          </h3>
+          <ul className="mt-1.5 space-y-3">
+            {summaryItems.map((item) => (
+              <li key={item.id} className="rounded-lg border border-fuchsia-200 bg-fuchsia-50/40 p-2 text-xs dark:border-fuchsia-800 dark:bg-fuchsia-900/10">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="font-medium text-gray-800 dark:text-gray-100">
+                    {item.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("Remove this saved feedback diagram from summary?")) {
+                        removeItemById(item.id);
+                      }
+                    }}
+                    className="text-[11px] font-medium text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Delete
+                  </button>
+                </div>
+                <p className="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
+                  {new Date(item.createdAt).toLocaleString()}
+                </p>
+                {item.svg ? (
+                  <div
+                    className="mt-1 max-h-32 overflow-hidden rounded border border-fuchsia-200 bg-white dark:border-fuchsia-700 dark:bg-gray-900"
+                    dangerouslySetInnerHTML={{ __html: item.svg }}
+                  />
+                ) : (
+                  <p className="mt-1 line-clamp-3 text-[11px] text-gray-600 dark:text-gray-300">
+                    {item.mermaidText}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
